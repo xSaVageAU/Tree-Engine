@@ -52,16 +52,26 @@ public class WebEditorServer {
     
     private static void exportWebFiles() {
         try {
-            // Export index.html from resources to config/tree_engine/web/
-            java.io.InputStream is = WebEditorServer.class.getClassLoader().getResourceAsStream("web/index.html");
-            if (is != null) {
-                byte[] htmlBytes = is.readAllBytes();
-                is.close();
-                
-                Path htmlFile = savage.tree_engine.config.MainConfig.getWebDir().resolve("index.html");
-                java.nio.file.Files.write(htmlFile, htmlBytes);
-                TreeEngine.LOGGER.info("Exported web files to: " + htmlFile.toAbsolutePath());
+            Path webDir = savage.tree_engine.config.MainConfig.getWebDir();
+            java.nio.file.Files.createDirectories(webDir);
+            
+            // List of files to export
+            String[] files = {
+                "index.html",
+                "style.css",
+                "main.js",
+                "tree-browser.js"
+            };
+            
+            for (String fileName : files) {
+                try (java.io.InputStream is = WebEditorServer.class.getClassLoader().getResourceAsStream("web/" + fileName)) {
+                    if (is != null) {
+                        Path target = webDir.resolve(fileName);
+                        java.nio.file.Files.copy(is, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
             }
+            TreeEngine.LOGGER.info("Exported web files to: " + webDir.toAbsolutePath());
         } catch (IOException e) {
             TreeEngine.LOGGER.error("Failed to export web files", e);
         }
@@ -72,6 +82,7 @@ public class WebEditorServer {
             server = HttpServer.create(new InetSocketAddress(3000), 0);
             server.createContext("/", new StaticHandler());
             server.createContext("/api/generate", new GenerateHandler());
+            server.createContext("/api/trees", new TreeApiHandler());
             server.createContext("/textures/", new TextureHandler());
             server.setExecutor(null); // creates a default executor
             server.start();
@@ -91,33 +102,44 @@ public class WebEditorServer {
     static class StaticHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
-            try {
-                // Load HTML from exported file
-                Path htmlFile = savage.tree_engine.config.MainConfig.getWebDir().resolve("index.html");
-                
-                if (!java.nio.file.Files.exists(htmlFile)) {
-                    String error = "Web interface not found";
-                    t.sendResponseHeaders(404, error.length());
-                    OutputStream os = t.getResponseBody();
-                    os.write(error.getBytes());
-                    os.close();
-                    return;
-                }
-                
-                byte[] htmlBytes = java.nio.file.Files.readAllBytes(htmlFile);
-                
-                t.getResponseHeaders().set("Content-Type", "text/html");
-                t.sendResponseHeaders(200, htmlBytes.length);
-                OutputStream os = t.getResponseBody();
-                os.write(htmlBytes);
-                os.close();
-            } catch (Exception e) {
-                TreeEngine.LOGGER.error("Error serving web interface", e);
-                String error = "Internal server error";
-                t.sendResponseHeaders(500, error.length());
-                OutputStream os = t.getResponseBody();
-                os.write(error.getBytes());
-                os.close();
+            String path = t.getRequestURI().getPath();
+            if (path.equals("/")) {
+                path = "/index.html";
+            }
+            
+            // Prevent directory traversal
+            if (path.contains("..")) {
+                send404(t);
+                return;
+            }
+            
+            Path webDir = savage.tree_engine.config.MainConfig.getWebDir();
+            Path file = webDir.resolve(path.substring(1)); // Remove leading /
+            
+            if (!java.nio.file.Files.exists(file) || java.nio.file.Files.isDirectory(file)) {
+                send404(t);
+                return;
+            }
+            
+            String mimeType = "text/html";
+            if (path.endsWith(".css")) mimeType = "text/css";
+            else if (path.endsWith(".js")) mimeType = "application/javascript";
+            else if (path.endsWith(".png")) mimeType = "image/png";
+            
+            byte[] bytes = java.nio.file.Files.readAllBytes(file);
+            
+            t.getResponseHeaders().set("Content-Type", mimeType);
+            t.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = t.getResponseBody()) {
+                os.write(bytes);
+            }
+        }
+        
+        private void send404(HttpExchange t) throws IOException {
+            String response = "404 Not Found";
+            t.sendResponseHeaders(404, response.length());
+            try (OutputStream os = t.getResponseBody()) {
+                os.write(response.getBytes());
             }
         }
     }

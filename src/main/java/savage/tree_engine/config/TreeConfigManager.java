@@ -35,6 +35,8 @@ public class TreeConfigManager {
                 try (FileReader reader = new FileReader(file)) {
                     TreeDefinition def = GSON.fromJson(reader, TreeDefinition.class);
                     String id = file.getName().replace(".json", "");
+                    // Ensure ID matches filename
+                    def.id = id;
                     LOADED_TREES.put(id, def);
                 } catch (Exception e) {
                     TreeEngine.LOGGER.error("Failed to load tree config: " + file.getName(), e);
@@ -50,6 +52,9 @@ public class TreeConfigManager {
 
     private static void createExample(Path dir) throws IOException {
         TreeDefinition base = new TreeDefinition();
+        base.id = "base_oak";
+        base.name = "Base Oak";
+        base.description = "Standard oak tree template";
         base.trunk_block = "minecraft:oak_log";
         base.foliage_block = "minecraft:oak_leaves";
         base.trunk_height_min = 4;
@@ -62,8 +67,6 @@ public class TreeConfigManager {
     }
 
     private static void resolveInheritance() {
-        // Simple multi-pass resolution or recursive
-        // Let's do a simple recursive resolve for each tree
         for (Map.Entry<String, TreeDefinition> entry : LOADED_TREES.entrySet()) {
             resolve(entry.getValue(), 0);
         }
@@ -71,15 +74,13 @@ public class TreeConfigManager {
 
     private static void resolve(TreeDefinition def, int depth) {
         if (depth > 10) {
-            TreeEngine.LOGGER.error("Circular or too deep inheritance detected!");
+            TreeEngine.LOGGER.error("Circular or too deep inheritance detected for tree: " + def.id);
             return;
         }
         if (def.parent != null && !def.parent.isEmpty()) {
             TreeDefinition parentDef = LOADED_TREES.get(def.parent);
             if (parentDef != null) {
-                // Ensure parent is resolved first
                 resolve(parentDef, depth + 1);
-                // Merge parent into child
                 def.merge(parentDef);
             } else {
                 TreeEngine.LOGGER.warn("Parent tree not found: " + def.parent);
@@ -89,5 +90,45 @@ public class TreeConfigManager {
 
     public static Map<String, TreeDefinition> getTrees() {
         return LOADED_TREES;
+    }
+    
+    public static TreeDefinition getTree(String id) {
+        return LOADED_TREES.get(id);
+    }
+    
+    public static void saveTree(TreeDefinition tree) {
+        if (tree.id == null || tree.id.isEmpty()) {
+            throw new IllegalArgumentException("Tree ID cannot be empty");
+        }
+        
+        LOADED_TREES.put(tree.id, tree);
+        
+        Path configDir = FabricLoader.getInstance().getConfigDir().resolve("tree_engine/trees");
+        Path file = configDir.resolve(tree.id + ".json");
+        
+        try {
+            Files.createDirectories(configDir);
+            String json = GSON.toJson(tree);
+            Files.writeString(file, json);
+            TreeEngine.LOGGER.info("Saved tree config: " + tree.id);
+        } catch (IOException e) {
+            TreeEngine.LOGGER.error("Failed to save tree config: " + tree.id, e);
+        }
+    }
+    
+    public static boolean deleteTree(String id) {
+        if (!LOADED_TREES.containsKey(id)) return false;
+        
+        LOADED_TREES.remove(id);
+        
+        Path configDir = FabricLoader.getInstance().getConfigDir().resolve("tree_engine/trees");
+        Path file = configDir.resolve(id + ".json");
+        
+        try {
+            return Files.deleteIfExists(file);
+        } catch (IOException e) {
+            TreeEngine.LOGGER.error("Failed to delete tree config: " + id, e);
+            return false;
+        }
     }
 }

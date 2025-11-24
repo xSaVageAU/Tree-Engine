@@ -3,6 +3,9 @@ package savage.tree_engine.config;
 import java.util.Optional;
 
 public class TreeDefinition {
+    public String id;
+    public String name;
+    public String description;
     public String parent;
     public String trunk_block;
     public String foliage_block;
@@ -18,6 +21,8 @@ public class TreeDefinition {
     public void merge(TreeDefinition parent) {
         if (parent == null) return;
 
+        if (this.name == null) this.name = parent.name;
+        if (this.description == null) this.description = parent.description;
         if (this.trunk_block == null) this.trunk_block = parent.trunk_block;
         if (this.foliage_block == null) this.foliage_block = parent.foliage_block;
         if (this.trunk_height_min == null) this.trunk_height_min = parent.trunk_height_min;

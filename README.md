@@ -84,7 +84,7 @@ See [EDITOR_ROADMAP.md](EDITOR_ROADMAP.md) for planned features and implementati
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the CC0 1.0 License - see the [LICENSE](LICENSE) file for details.
 
 ## Credits
 
