@@ -343,6 +343,7 @@ class TreeBrowser {
 
     async importVanillaTree(id) {
         const modal = document.getElementById('import-modal');
+        console.log("Importing tree:", id);
 
         try {
             // Fetch the raw vanilla tree JSON from Minecraft resources
@@ -351,6 +352,8 @@ class TreeBrowser {
             if (response.ok) {
                 const vanillaConfig = await response.json();
                 modal.style.display = 'none';
+
+                console.log("Vanilla config loaded", vanillaConfig);
 
                 // Create a TreeWrapper with the vanilla config
                 const wrapper = {
@@ -364,22 +367,32 @@ class TreeBrowser {
                 };
 
                 this.selectedTreeId = null; // It's a new tree until saved
-                document.getElementById('tree_name').value = wrapper.name;
-                document.getElementById('tree_description').value = wrapper.description;
+
+                const nameInput = document.getElementById('tree_name');
+                const descInput = document.getElementById('tree_description');
+
+                if (nameInput) nameInput.value = wrapper.name;
+                if (descInput) descInput.value = wrapper.description;
 
                 // Store the wrapper for later saving
                 window.currentTreeWrapper = wrapper;
 
                 // Build dynamic form
+                console.log("Building editor form...");
                 this.buildEditorForm(wrapper.config);
-                document.getElementById('json-editor').value = JSON.stringify(wrapper.config, null, 2);
+
+                const jsonEditor = document.getElementById('json-editor');
+                if (jsonEditor) jsonEditor.value = JSON.stringify(wrapper.config, null, 2);
 
                 this.updateDeleteButtonState();
 
                 // Switch to editor
                 switchTab('editor');
-                updateMaterials();
-                generateTree();
+
+                console.log("Updating materials and generating tree...");
+                await updateMaterials();
+                await generateTree();
+                console.log("Import complete.");
             } else {
                 alert(`Failed to import tree: ${await response.text()}`);
             }
