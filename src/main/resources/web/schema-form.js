@@ -257,18 +257,10 @@ class SchemaFormBuilder {
     extractObjectValue(key, definition, fieldset) {
         const obj = {};
         const properties = definition.properties || {};
+        let hasKeys = false;
 
         for (const [subKey, subDef] of Object.entries(properties)) {
             // Find the wrapper for this sub-field within the fieldset
-            // Note: We need to be careful not to select nested fields of nested objects
-            // So we look for direct children or use a specific selector strategy
-
-            // A simple way is to query all form-fields inside and filter by key, 
-            // but since we have a flat structure inside the fieldset (legend, div.form-field, div.form-field...),
-            // we can just look for the specific data-field-key
-
-            // However, querySelector might find a deeply nested one. 
-            // So we iterate over children to find the right one.
             let subFieldWrapper = null;
             for (const child of fieldset.children) {
                 if (child.classList.contains('form-field') && child.dataset.fieldKey === subKey) {
@@ -281,9 +273,24 @@ class SchemaFormBuilder {
 
             const input = subFieldWrapper.querySelector('[data-config-key]');
             if (input) {
-                obj[subKey] = this.extractFieldValue(subKey, subDef, input);
+                const val = this.extractFieldValue(subKey, subDef, input);
+
+                // Only include if value is defined and not null
+                if (val !== undefined && val !== null) {
+                    // Prune empty objects (unless it's an array, which we keep even if empty)
+                    if (typeof val === 'object' && !Array.isArray(val) && Object.keys(val).length === 0) {
+                        continue;
+                    }
+
+                    obj[subKey] = val;
+                    hasKeys = true;
+                }
             }
         }
+
+        // If the resulting object is empty, return undefined so it's omitted from the parent
+        // This prevents sending "{}" for optional fields which causes codec errors
+        if (!hasKeys) return undefined;
 
         return obj;
     }
@@ -299,29 +306,12 @@ class SchemaFormBuilder {
 
             const content = itemWrapper.querySelector('.item-content');
             const itemSchema = definition.items;
+            let val;
 
             if (itemSchema && itemSchema.properties) {
-                // It's an object item
-                // We can reuse extractObjectValue logic but we need to mock a definition/fieldset structure
-                // or just manually extract properties
-                const itemObj = {};
-                for (const [propKey, propDef] of Object.entries(itemSchema.properties)) {
-                    let subFieldWrapper = null;
-                    for (const child of content.children) {
-                        if (child.classList.contains('form-field') && child.dataset.fieldKey === propKey) {
-                            subFieldWrapper = child;
-                            break;
-                        }
-                    }
-
-                    if (subFieldWrapper) {
-                        const input = subFieldWrapper.querySelector('[data-config-key]');
-                        if (input) {
-                            itemObj[propKey] = this.extractFieldValue(propKey, propDef, input);
-                        }
-                    }
-                }
-                items.push(itemObj);
+                // Reuse extractObjectValue for object items
+                // content acts as the fieldset containing the fields
+                val = this.extractObjectValue(null, itemSchema, content);
             } else {
                 // It's a simple value or raw JSON
                 const input = content.querySelector('textarea, input');
@@ -329,16 +319,22 @@ class SchemaFormBuilder {
                     try {
                         // If it's a textarea with raw JSON
                         if (input.tagName.toLowerCase() === 'textarea') {
-                            items.push(JSON.parse(input.value));
+                            val = JSON.parse(input.value);
                         } else {
-                            // TODO: Handle simple array types (strings, numbers) if needed
-                            // For now our schema mainly uses object arrays or raw JSON
-                            items.push(input.value);
+                            if (itemSchema.type === 'integer') val = parseInt(input.value) || 0;
+                            else if (itemSchema.type === 'number') val = parseFloat(input.value) || 0;
+                            else if (itemSchema.type === 'boolean') val = input.checked;
+                            else val = input.value;
                         }
                     } catch (e) {
-                        console.warn("Invalid array item JSON", e);
+                        console.warn('Error extracting array item value', e);
                     }
                 }
+            }
+
+            // Only add if value is valid
+            if (val !== undefined && val !== null) {
+                items.push(val);
             }
         }
 

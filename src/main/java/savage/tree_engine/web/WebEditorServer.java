@@ -187,24 +187,20 @@ public class WebEditorServer {
         private List<BlockInfo> generateTree(TreeWrapper wrapper) {
             PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager());
             
-            // TODO: Phase 5 - Parse wrapper.config JSON using Minecraft's codec system
-            // For now, use a basic oak tree configuration as placeholder
-            Block trunkBlock = Registries.BLOCK.get(Identifier.of("minecraft", "oak_log"));
-            Block foliageBlock = Registries.BLOCK.get(Identifier.of("minecraft", "oak_leaves"));
+            // Parse wrapper.config JSON using Minecraft's codec system
+            try {
+                com.mojang.serialization.DataResult<TreeFeatureConfig> result = TreeFeatureConfig.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE, wrapper.config);
+                TreeFeatureConfig config = result.getOrThrow(errorMsg -> new IllegalStateException("Failed to parse tree config: " + errorMsg));
+                
+                ConfiguredFeature<?, ?> feature = new ConfiguredFeature<>(Feature.TREE, config);
 
-            ConfiguredFeature<?, ?> feature = new ConfiguredFeature<>(
-                Feature.TREE,
-                new TreeFeatureConfig.Builder(
-                    BlockStateProvider.of(trunkBlock),
-                    new StraightTrunkPlacer(4, 2, 0),
-                    BlockStateProvider.of(foliageBlock),
-                    new BlobFoliagePlacer(ConstantIntProvider.create(2), ConstantIntProvider.create(0), 3),
-                    new net.minecraft.world.gen.feature.size.TwoLayersFeatureSize(1, 0, 1)
-                ).build()
-            );
-
-            // Generate at 0,0,0
-            feature.generate(world, null, Random.create(), new BlockPos(0, 0, 0));
+                // Generate at 0,0,0
+                feature.generate(world, null, Random.create(), new BlockPos(0, 0, 0));
+            } catch (Exception e) {
+                TreeEngine.LOGGER.error("Failed to parse tree config", e);
+                // Fallback or rethrow? Let's rethrow to show error in UI
+                throw new RuntimeException("Failed to parse tree config: " + e.getMessage(), e);
+            }
 
             return world.getPlacedBlocks();
         }

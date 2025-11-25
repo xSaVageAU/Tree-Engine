@@ -201,19 +201,26 @@ async function generateTree() {
     if (btn) btn.disabled = true;
     if (status) status.textContent = "Generating...";
 
-    // Extract config from the current wrapper (which should be synced by tree-browser.js)
-    // OR extract directly from the active view if we want immediate feedback without saving
+    // Get the full wrapper object (backend expects TreeWrapper, not just config)
+    let wrapper = window.currentTreeWrapper;
 
-    let config = {};
-
-    // Try to get from window wrapper first as it's the source of truth
-    if (window.currentTreeWrapper && window.currentTreeWrapper.config) {
-        config = window.currentTreeWrapper.config;
-    } else {
-        // Fallback to extracting from form if wrapper isn't set yet
+    if (!wrapper) {
+        // If no wrapper set, create a temporary one
         const container = document.getElementById('dynamic-form-container');
         if (window.treeBrowser && window.treeBrowser.schemaFormBuilder && container) {
-            config = window.treeBrowser.schemaFormBuilder.extractValues(container);
+            const config = window.treeBrowser.schemaFormBuilder.extractValues(container);
+            wrapper = {
+                id: 'preview',
+                name: 'Preview',
+                description: 'Preview tree',
+                type: 'minecraft:tree',
+                config: config
+            };
+        } else {
+            console.error('No tree wrapper available for generation');
+            if (status) status.textContent = 'Error: No tree data';
+            if (btn) btn.disabled = false;
+            return;
         }
     }
 
@@ -256,7 +263,7 @@ async function generateTree() {
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(config)
+            body: JSON.stringify(wrapper)
         });
         if (!response.ok) throw new Error("API Error: " + await response.text());
         const blocks = await response.json();

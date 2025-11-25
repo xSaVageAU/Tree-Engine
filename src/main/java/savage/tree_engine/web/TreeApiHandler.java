@@ -94,28 +94,54 @@ public class TreeApiHandler implements HttpHandler {
     }
 
     /**
-     * Fetch raw vanilla tree JSON directly from Minecraft resources.
-     * Returns the exact JSON that Minecraft uses for the specified tree.
+     * Fetch vanilla tree config from Minecraft's runtime registry.
+     * This ensures we get a complete, validated config with all defaults filled in.
      */
     private void handleGetVanillaTree(HttpExchange exchange, String treeId) throws IOException {
         try {
-            Identifier featureId = Identifier.of("minecraft", "worldgen/configured_feature/" + treeId + ".json");
+            Identifier featureId = Identifier.of("minecraft", treeId);
             
-            // Get the resource from the server's resource manager
-            Resource resource = minecraftServer.getResourceManager().getResource(featureId).orElse(null);
-            
-            if (resource == null) {
-                sendError(exchange, 404, "Vanilla tree not found: " + treeId);
+            // Get the configured feature from the runtime registry
+            var registryOpt = minecraftServer.getRegistryManager().getOptional(net.minecraft.registry.RegistryKeys.CONFIGURED_FEATURE);
+            if (registryOpt.isEmpty()) {
+                sendError(exchange, 500, "Registry not available");
                 return;
             }
             
-            // Read the raw JSON content
-            try (InputStream is = resource.getInputStream()) {
-                String json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                sendResponse(exchange, 200, json);
+            net.minecraft.registry.Registry<net.minecraft.world.gen.feature.ConfiguredFeature<?, ?>> registry = registryOpt.get();
+            net.minecraft.world.gen.feature.ConfiguredFeature<?, ?> configuredFeature = registry.get(featureId);
+            
+            if (configuredFeature == null) {
+                sendError(exchange, 404, "Vanilla tree not found in registry: " + treeId);
+                return;
             }
+            
+            // Check if it's a tree feature
+            if (!(configuredFeature.feature() instanceof net.minecraft.world.gen.feature.TreeFeature)) {
+                sendError(exchange, 400, "Feature is not a tree: " + treeId);
+                return;
+            }
+            
+            // Encode the config back to JSON using the codec
+            // This gives us a complete, valid JSON representation
+            com.mojang.serialization.DataResult<com.google.gson.JsonElement> result = 
+                net.minecraft.world.gen.feature.TreeFeatureConfig.CODEC.encodeStart(
+                    com.mojang.serialization.JsonOps.INSTANCE, 
+                    (net.minecraft.world.gen.feature.TreeFeatureConfig) configuredFeature.config()
+                );
+            
+            com.google.gson.JsonElement configJson = result.getOrThrow(errorMsg -> new IllegalStateException("Failed to encode tree config: " + errorMsg));
+            
+            // Wrap it in the expected format
+            com.google.gson.JsonObject wrapper = new com.google.gson.JsonObject();
+            wrapper.addProperty("type", "minecraft:tree");
+            wrapper.add("config", configJson);
+            
+            String json = GSON.toJson(wrapper);
+            sendResponse(exchange, 200, json);
+            
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to fetch vanilla tree: " + treeId, e);
+            TreeEngine.LOGGER.error("Failed to fetch vanilla tree from registry: " + treeId, e);
             sendError(exchange, 500, "Failed to fetch vanilla tree: " + e.getMessage());
         }
     }

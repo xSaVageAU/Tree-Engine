@@ -35,11 +35,6 @@ public class VirtualDatapackManager {
 
         Map<String, TreeWrapper> trees = TreeConfigManager.getTrees();
         
-        // TODO: Phase 5 - Parse wrapper.config JSON using Minecraft's codec
-        // For now, skip registration until we implement proper JSON parsing
-        TreeEngine.LOGGER.warn("Tree feature registration temporarily disabled - awaiting JSON codec implementation");
-        
-        /*
         for (Map.Entry<String, TreeWrapper> entry : trees.entrySet()) {
             String id = entry.getKey();
             TreeWrapper wrapper = entry.getValue();
@@ -52,6 +47,13 @@ public class VirtualDatapackManager {
                 TreeEngine.LOGGER.error("Failed to create feature for tree: " + id, e);
             }
         }
-        */
+    }
+
+    private static ConfiguredFeature<?, ?> createTreeFeature(TreeWrapper wrapper) {
+        // Parse wrapper.config JSON using Minecraft's codec system
+        com.mojang.serialization.DataResult<TreeFeatureConfig> result = TreeFeatureConfig.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE, wrapper.config);
+        TreeFeatureConfig config = result.getOrThrow(errorMsg -> new IllegalStateException("Failed to parse tree config: " + errorMsg));
+        
+        return new ConfiguredFeature<>(Feature.TREE, config);
     }
 }
