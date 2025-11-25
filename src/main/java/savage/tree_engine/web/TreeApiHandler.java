@@ -4,11 +4,15 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import net.minecraft.resource.Resource;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.Identifier;
 import savage.tree_engine.TreeEngine;
 import savage.tree_engine.config.TreeConfigManager;
-import savage.tree_engine.config.TreeDefinition;
+import savage.tree_engine.config.TreeWrapper;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -18,6 +22,11 @@ import java.util.Map;
 
 public class TreeApiHandler implements HttpHandler {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private final MinecraftServer minecraftServer;
+
+    public TreeApiHandler(MinecraftServer server) {
+        this.minecraftServer = server;
+    }
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
@@ -52,9 +61,20 @@ public class TreeApiHandler implements HttpHandler {
                 } else if ("vanilla_trees".equals(endpoint)) {
                     if ("GET".equals(method)) handleListVanilla(exchange);
                     else sendError(exchange, 405, "Method not allowed");
-                } else if ("import_vanilla".equals(endpoint)) {
-                    if ("POST".equals(method)) handleImportVanilla(exchange);
-                    else sendError(exchange, 405, "Method not allowed");
+                } else if ("vanilla_tree".equals(endpoint)) {
+                    // GET /api/vanilla_tree/{id} - fetch raw JSON from Minecraft resources
+                    if (parts.length == 4 && "GET".equals(method)) {
+                        handleGetVanillaTree(exchange, parts[3]);
+                    } else {
+                        sendError(exchange, 405, "Method not allowed");
+                    }
+                } else if ("schema".equals(endpoint)) {
+                    // GET /api/schema - serve the tree feature JSON schema
+                    if ("GET".equals(method)) {
+                        handleGetSchema(exchange);
+                    } else {
+                        sendError(exchange, 405, "Method not allowed");
+                    }
                 } else {
                     sendError(exchange, 404, "Not found");
                 }
@@ -73,39 +93,60 @@ public class TreeApiHandler implements HttpHandler {
         sendResponse(exchange, 200, json);
     }
 
-    private void handleImportVanilla(HttpExchange exchange) throws IOException {
-        try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-            Map<String, String> body = GSON.fromJson(reader, Map.class);
-            String id = body.get("id");
+    /**
+     * Fetch raw vanilla tree JSON directly from Minecraft resources.
+     * Returns the exact JSON that Minecraft uses for the specified tree.
+     */
+    private void handleGetVanillaTree(HttpExchange exchange, String treeId) throws IOException {
+        try {
+            Identifier featureId = Identifier.of("minecraft", "worldgen/configured_feature/" + treeId + ".json");
             
-            if (id == null) {
-                sendError(exchange, 400, "Missing 'id' field");
+            // Get the resource from the server's resource manager
+            Resource resource = minecraftServer.getResourceManager().getResource(featureId).orElse(null);
+            
+            if (resource == null) {
+                sendError(exchange, 404, "Vanilla tree not found: " + treeId);
                 return;
             }
+            
+            // Read the raw JSON content
+            try (InputStream is = resource.getInputStream()) {
+                String json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                sendResponse(exchange, 200, json);
+            }
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to fetch vanilla tree: " + treeId, e);
+            sendError(exchange, 500, "Failed to fetch vanilla tree: " + e.getMessage());
+        }
+    }
 
-            TreeDefinition def = TreeConfigManager.importVanillaTree(id);
-            if (def == null) {
-                sendError(exchange, 404, "Vanilla tree not found or invalid");
+    /**
+     * Serve the tree feature JSON schema for dynamic UI generation.
+     */
+    private void handleGetSchema(HttpExchange exchange) throws IOException {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream("schemas/tree_feature_schema.json")) {
+            if (is == null) {
+                sendError(exchange, 404, "Schema file not found");
                 return;
             }
             
-            String json = GSON.toJson(def);
+            String json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             sendResponse(exchange, 200, json);
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to import tree", e);
-            sendError(exchange, 500, "Import failed: " + e.getMessage());
+            TreeEngine.LOGGER.error("Failed to load schema", e);
+            sendError(exchange, 500, "Failed to load schema: " + e.getMessage());
         }
     }
 
     private void handleList(HttpExchange exchange) throws IOException {
-        Map<String, TreeDefinition> trees = TreeConfigManager.getTrees();
-        List<TreeDefinition> list = new ArrayList<>(trees.values());
+        Map<String, TreeWrapper> trees = TreeConfigManager.getTrees();
+        List<TreeWrapper> list = new ArrayList<>(trees.values());
         String json = GSON.toJson(list);
         sendResponse(exchange, 200, json);
     }
 
     private void handleGet(HttpExchange exchange, String id) throws IOException {
-        TreeDefinition tree = TreeConfigManager.getTree(id);
+        TreeWrapper tree = TreeConfigManager.getTree(id);
         if (tree == null) {
             sendError(exchange, 404, "Tree not found");
             return;
@@ -116,7 +157,7 @@ public class TreeApiHandler implements HttpHandler {
 
     private void handleSave(HttpExchange exchange) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-            TreeDefinition tree = GSON.fromJson(reader, TreeDefinition.class);
+            TreeWrapper tree = GSON.fromJson(reader, TreeWrapper.class);
             
             if (tree.id == null || tree.id.isEmpty()) {
                 if (tree.name != null) {

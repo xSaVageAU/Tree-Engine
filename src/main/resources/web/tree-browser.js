@@ -61,26 +61,20 @@ class TreeBrowser {
         this.selectedTreeId = tree.id;
         this.renderTreeList(); // Update selection UI
 
-        // Load into editor
+        // Store the wrapper for editing
+        window.currentTreeWrapper = tree;
+
+        // Load into editor - extract from config if available
         document.getElementById('tree_name').value = tree.name || "";
-        document.getElementById('trunk_block').value = tree.trunk_block || "minecraft:oak_log";
-        document.getElementById('foliage_block').value = tree.foliage_block || "minecraft:oak_leaves";
-        document.getElementById('trunk_height_min').value = tree.trunk_height_min || 4;
-        document.getElementById('trunk_height_max').value = tree.trunk_height_max || 6;
-        document.getElementById('foliage_radius').value = tree.foliage_radius || 2;
-        document.getElementById('foliage_offset').value = tree.foliage_offset || 0;
 
-        // Load placer types
-        document.getElementById('trunk_placer_type').value = tree.trunk_placer_type || "straight";
-        document.getElementById('foliage_placer_type').value = tree.foliage_placer_type || "blob";
-        document.getElementById('foliage_height').value = tree.foliage_height || 3;
-
-        // Update UI displays
-        document.getElementById('height_min_val').textContent = tree.trunk_height_min || 4;
-        document.getElementById('height_max_val').textContent = tree.trunk_height_max || 6;
-        document.getElementById('radius_val').textContent = tree.foliage_radius || 2;
-        document.getElementById('offset_val').textContent = tree.foliage_offset || 0;
-        document.getElementById('foliage_height_val').textContent = tree.foliage_height || 3;
+        // Try to extract block info from config
+        const config = tree.config || {};
+        if (config.trunk_provider && config.trunk_provider.state) {
+            document.getElementById('trunk_block').value = config.trunk_provider.state.Name || 'minecraft:oak_log';
+        }
+        if (config.foliage_provider && config.foliage_provider.state) {
+            document.getElementById('foliage_block').value = config.foliage_provider.state.Name || 'minecraft:oak_leaves';
+        }
 
         this.updateDeleteButtonState();
 
@@ -125,56 +119,81 @@ class TreeBrowser {
     }
 
     async saveCurrentTree() {
-        const name = document.getElementById('tree_name').value;
+        const name = document.getElementById('tree_name').value.trim();
         if (!name) {
-            alert("Please enter a tree name.");
+            alert('Please enter a tree name');
             return;
         }
 
-        const tree = {
-            id: this.selectedTreeId, // If null, backend generates new ID based on name
-            name: name,
-            description: "Created via Web Editor",
-            trunk_block: document.getElementById('trunk_block').value,
-            foliage_block: document.getElementById('foliage_block').value,
-            trunk_height_min: parseInt(document.getElementById('trunk_height_min').value),
-            trunk_height_max: parseInt(document.getElementById('trunk_height_max').value),
-            foliage_radius: parseInt(document.getElementById('foliage_radius').value),
-            foliage_offset: parseInt(document.getElementById('foliage_offset').value),
-            trunk_placer_type: document.getElementById('trunk_placer_type').value,
-            foliage_placer_type: document.getElementById('foliage_placer_type').value,
-            foliage_height: parseInt(document.getElementById('foliage_height').value)
+        // Get existing wrapper or create new one
+        let wrapper = window.currentTreeWrapper || {
+            id: name.toLowerCase().replace(/ /g, '_'),
+            namespace: 'tree_engine',
+            version: '1.0',
+            type: 'minecraft:tree',
+            config: {}
+        };
+
+        // Update metadata
+        wrapper.name = name;
+        wrapper.description = `Custom tree: ${name}`;
+
+        // Build simple config from form values (temporary until dynamic form is complete)
+        const trunkBlock = document.getElementById('trunk_block').value;
+        const foliageBlock = document.getElementById('foliage_block').value;
+
+        wrapper.config = {
+            trunk_provider: {
+                type: 'minecraft:simple_state_provider',
+                state: { Name: trunkBlock }
+            },
+            foliage_provider: {
+                type: 'minecraft:simple_state_provider',
+                state: { Name: foliageBlock }
+            },
+            trunk_placer: {
+                type: `minecraft:${document.getElementById('trunk_placer_type').value}_trunk_placer`,
+                base_height: parseInt(document.getElementById('trunk_height_min').value),
+                height_rand_a: parseInt(document.getElementById('trunk_height_max').value) - parseInt(document.getElementById('trunk_height_min').value),
+                height_rand_b: 0
+            },
+            foliage_placer: {
+                type: `minecraft:${document.getElementById('foliage_placer_type').value}_foliage_placer`,
+                radius: parseInt(document.getElementById('foliage_radius').value),
+                offset: parseInt(document.getElementById('foliage_offset').value),
+                height: parseInt(document.getElementById('foliage_height').value)
+            },
+            minimum_size: {
+                type: 'minecraft:two_layers_feature_size',
+                limit: 1,
+                lower_size: 0,
+                upper_size: 1
+            },
+            decorators: []
         };
 
         try {
             const response = await fetch('/api/trees', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(tree)
+                body: JSON.stringify(wrapper)
             });
 
             if (response.ok) {
-                const savedTree = await response.json();
-                this.selectedTreeId = savedTree.id; // Update ID in case it was new
+                const saved = await response.json();
+                this.selectedTreeId = saved.id;
+                window.currentTreeWrapper = saved;
                 await this.loadTrees();
                 this.renderTreeList();
                 this.updateDeleteButtonState();
-
-                // Optional: Show toast instead of alert
-                const status = document.getElementById('status');
-                const originalText = status.textContent;
-                status.textContent = "Tree Saved!";
-                status.style.color = "#5ca363";
-                setTimeout(() => {
-                    status.textContent = originalText;
-                    status.style.color = "";
-                }, 2000);
+                alert('Tree saved!');
             } else {
-                alert("Failed to save tree");
+                const error = await response.text();
+                alert('Failed to save tree: ' + error);
             }
         } catch (e) {
-            console.error(e);
-            alert("Error saving tree");
+            console.error('Error saving tree:', e);
+            alert('Error saving tree: ' + e.message);
         }
     }
 
@@ -263,50 +282,53 @@ class TreeBrowser {
         const modal = document.getElementById('import-modal');
 
         try {
-            const response = await fetch('/api/import_vanilla', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: id })
-            });
+            // Fetch the raw vanilla tree JSON from Minecraft resources
+            const response = await fetch(`/api/vanilla_tree/${id}`);
 
             if (response.ok) {
-                const tree = await response.json();
+                const vanillaConfig = await response.json();
                 modal.style.display = 'none';
 
-                // Load the imported tree into the editor
+                // Create a TreeWrapper with the vanilla config
+                const wrapper = {
+                    id: id + '_import',
+                    name: id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+                    description: `Imported from vanilla minecraft:${id}`,
+                    namespace: 'tree_engine',
+                    version: '1.0',
+                    type: 'minecraft:tree',
+                    config: vanillaConfig.config || vanillaConfig  // Extract config if wrapped
+                };
+
+                // For now, populate the static form with defaults (will be replaced by dynamic form later)
+                // This is a temporary solution until we complete the dynamic form integration
                 this.selectedTreeId = null; // It's a new tree until saved
-                document.getElementById('tree_name').value = tree.name || "";
-                document.getElementById('trunk_block').value = tree.trunk_block || "minecraft:oak_log";
-                document.getElementById('foliage_block').value = tree.foliage_block || "minecraft:oak_leaves";
-                document.getElementById('trunk_height_min').value = tree.trunk_height_min || 4;
-                document.getElementById('trunk_height_max').value = tree.trunk_height_max || 6;
-                document.getElementById('foliage_radius').value = tree.foliage_radius || 2;
-                document.getElementById('foliage_offset').value = tree.foliage_offset || 0;
+                document.getElementById('tree_name').value = wrapper.name;
 
-                // Load placer types
-                document.getElementById('trunk_placer_type').value = tree.trunk_placer_type || "straight";
-                document.getElementById('foliage_placer_type').value = tree.foliage_placer_type || "blob";
-                document.getElementById('foliage_height').value = tree.foliage_height || 3;
+                // Try to extract some basic info from the config for the static form
+                const config = wrapper.config;
+                if (config.trunk_provider && config.trunk_provider.state) {
+                    document.getElementById('trunk_block').value = config.trunk_provider.state.Name || 'minecraft:oak_log';
+                }
+                if (config.foliage_provider && config.foliage_provider.state) {
+                    document.getElementById('foliage_block').value = config.foliage_provider.state.Name || 'minecraft:oak_leaves';
+                }
 
-                // Update displays
-                document.getElementById('height_min_val').textContent = tree.trunk_height_min || 4;
-                document.getElementById('height_max_val').textContent = tree.trunk_height_max || 6;
-                document.getElementById('radius_val').textContent = tree.foliage_radius || 2;
-                document.getElementById('offset_val').textContent = tree.foliage_offset || 0;
-                document.getElementById('foliage_height_val').textContent = tree.foliage_height || 3;
+                // Store the wrapper for later saving
+                window.currentTreeWrapper = wrapper;
 
                 this.updateDeleteButtonState();
 
-                // Switch to editor and generate
+                // Switch to editor
                 switchTab('editor');
                 updateMaterials();
                 generateTree();
             } else {
-                alert('Failed to import tree');
+                alert(`Failed to import tree: ${await response.text()}`);
             }
         } catch (e) {
-            console.error(e);
-            alert('Error importing tree');
+            console.error('Error importing vanilla tree:', e);
+            alert('Error importing tree: ' + e.message);
         }
     }
 }

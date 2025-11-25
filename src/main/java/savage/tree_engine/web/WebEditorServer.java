@@ -20,7 +20,7 @@ import net.minecraft.world.gen.foliage.BlobFoliagePlacer;
 import net.minecraft.world.gen.stateprovider.BlockStateProvider;
 import net.minecraft.world.gen.trunk.StraightTrunkPlacer;
 import savage.tree_engine.TreeEngine;
-import savage.tree_engine.config.TreeDefinition;
+import savage.tree_engine.config.TreeWrapper;
 import savage.tree_engine.world.PhantomWorld;
 
 import java.io.IOException;
@@ -60,6 +60,7 @@ public class WebEditorServer {
                 "index.html",
                 "style.css",
                 "main.js",
+                "schema-form.js",
                 "tree-browser.js"
             };
             
@@ -82,7 +83,7 @@ public class WebEditorServer {
             server = HttpServer.create(new InetSocketAddress(3000), 0);
             server.createContext("/", new StaticHandler());
             server.createContext("/api/generate", new GenerateHandler());
-            server.createContext("/api/", new TreeApiHandler());
+            server.createContext("/api/", new TreeApiHandler(minecraftServer));
             server.createContext("/textures/", new TextureHandler());
             server.setExecutor(null); // creates a default executor
             server.start();
@@ -151,7 +152,7 @@ public class WebEditorServer {
                 try {
                     // Parse Request
                     InputStreamReader reader = new InputStreamReader(t.getRequestBody(), StandardCharsets.UTF_8);
-                    TreeDefinition def = GSON.fromJson(reader, TreeDefinition.class);
+                    TreeWrapper def = GSON.fromJson(reader, TreeWrapper.class);
 
                     // Schedule generation on main thread
                     CompletableFuture<List<BlockInfo>> future = CompletableFuture.supplyAsync(() -> {
@@ -183,29 +184,21 @@ public class WebEditorServer {
             }
         }
 
-        private List<BlockInfo> generateTree(TreeDefinition def) {
+        private List<BlockInfo> generateTree(TreeWrapper wrapper) {
             PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager());
             
-            // Reconstruct feature from definition (Duplicate logic from VirtualDatapackManager, refactor later?)
-            // For now, let's just duplicate for speed, or better, make a shared utility.
-            // Let's duplicate for now to avoid circular deps or complex refactors in this step.
-            
-            Block trunkBlock = Registries.BLOCK.get(Identifier.of(def.trunk_block.split(":")[0], def.trunk_block.split(":")[1]));
-            Block foliageBlock = Registries.BLOCK.get(Identifier.of(def.foliage_block.split(":")[0], def.foliage_block.split(":")[1]));
-
-            int heightMin = def.trunk_height_min != null ? def.trunk_height_min : 4;
-            int heightMax = def.trunk_height_max != null ? def.trunk_height_max : 6;
-            int radius = def.foliage_radius != null ? def.foliage_radius : 2;
-            int offset = def.foliage_offset != null ? def.foliage_offset : 0;
-            int foliageHeight = def.foliage_height != null ? def.foliage_height : 3;
+            // TODO: Phase 5 - Parse wrapper.config JSON using Minecraft's codec system
+            // For now, use a basic oak tree configuration as placeholder
+            Block trunkBlock = Registries.BLOCK.get(Identifier.of("minecraft", "oak_log"));
+            Block foliageBlock = Registries.BLOCK.get(Identifier.of("minecraft", "oak_leaves"));
 
             ConfiguredFeature<?, ?> feature = new ConfiguredFeature<>(
                 Feature.TREE,
                 new TreeFeatureConfig.Builder(
                     BlockStateProvider.of(trunkBlock),
-                    PlacerFactory.createTrunkPlacer(def.trunk_placer_type, heightMin, heightMax),
+                    new StraightTrunkPlacer(4, 2, 0),
                     BlockStateProvider.of(foliageBlock),
-                    PlacerFactory.createFoliagePlacer(def.foliage_placer_type, radius, offset, foliageHeight),
+                    new BlobFoliagePlacer(ConstantIntProvider.create(2), ConstantIntProvider.create(0), 3),
                     new net.minecraft.world.gen.feature.size.TwoLayersFeatureSize(1, 0, 1)
                 ).build()
             );
