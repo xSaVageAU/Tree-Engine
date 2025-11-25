@@ -2,23 +2,38 @@
 
 A Minecraft Fabric mod that provides a powerful web-based editor for creating, modifying, and managing custom tree generators with real-time 3D preview.
 
+https://github.com/user-attachments/assets/fef560ee-a708-45df-a56d-d9fe799a13fd
+
 ## Features
 
-### Current
-- ✅ **Web-Based 3D Editor** - Real-time Babylon.js renderer with Minecraft-accurate lighting
-- ✅ **Custom Tree Generation** - Config-based tree system with JSON storage
-- ✅ **Live Preview** - Instant visualization of tree changes
-- ✅ **Biome Tinting** - Accurate leaf colors for all Minecraft biomes
-- ✅ **Hot Reload** - `/tree_engine reload` command for rapid iteration
-- ✅ **Texture Support** - Load textures from resource packs
+### 🌳 Web-Based Tree Editor
+- **Real-time 3D Preview** - Babylon.js renderer with Minecraft-accurate lighting and shadows
+- **Dynamic Form Builder** - Schema-driven UI that adapts to Minecraft's tree configuration format
+- **Dual Edit Modes** - Switch between visual form editor and raw JSON editing
+- **Live Updates** - Changes instantly reflected in the 3D preview
+- **Biome Tinting** - Accurate leaf colors for all 15+ Minecraft biomes
+- **Resource Pack Support** - Load textures from any Minecraft resource pack
 
-### Planned (See [EDITOR_ROADMAP.md](EDITOR_ROADMAP.md))
-- 🚧 Tree CRUD operations via web UI
-- 🚧 Vanilla tree import system
-- 🚧 Advanced trunk/foliage placers
-- 🚧 Parent/child tree hierarchies
-- 🚧 Visual block editing tools
-- 🚧 Datapack export
+### 📚 Tree Library Management
+- **Tree Browser** - Visual library of all custom trees with search
+- **Import Vanilla Trees** - One-click import from Minecraft's built-in trees
+- **CRUD Operations** - Create, edit, duplicate, and delete trees via web UI
+- **Metadata System** - Name, description, and tags for organization
+- **Hot Reload** - `/tree_engine reload` command for rapid iteration
+
+### 🎨 Accurate Rendering
+- **1:1 Preview** - What you see is what you get in-game
+- **Log Rotations** - Correctly renders horizontal logs (axis x/z)
+- **Multi-material System** - Proper log textures (side + top)
+- **Thin Instancing** - Performant rendering of large trees (1000+ blocks)
+- **Minecraft-style Lighting** - Hemispheric + directional lights + SSAO
+
+### Planned Features
+See [EDITOR_ROADMAP.md](EDITOR_ROADMAP.md) for upcoming features:
+- Advanced trunk/foliage placer support
+- Visual block editing tools
+- Parent/child tree hierarchies
+- Datapack export functionality
 
 ## Installation
 
