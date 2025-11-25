@@ -23,18 +23,8 @@ class TreeBrowser {
     }
 
     async loadSchema() {
-        try {
-            const response = await fetch('/api/schema');
-            if (response.ok) {
-                this.schema = await response.json();
-                this.schemaFormBuilder = new SchemaFormBuilder(this.schema);
-                console.log("Schema loaded successfully");
-            } else {
-                console.error("Failed to load schema");
-            }
-        } catch (e) {
-            console.error("Error loading schema", e);
-        }
+        // Schema removed in new architecture, using raw JSON editing
+        console.log("Schema not used in new architecture");
     }
 
     async loadTrees() {
@@ -55,17 +45,16 @@ class TreeBrowser {
         list.innerHTML = "";
 
         const filtered = this.trees.filter(t =>
-            (t.name && t.name.toLowerCase().includes(filter.toLowerCase())) ||
-            t.id.toLowerCase().includes(filter.toLowerCase())
+            t.toLowerCase().includes(filter.toLowerCase())
         );
 
-        filtered.forEach(tree => {
+        filtered.forEach(treeId => {
             const el = document.createElement('div');
-            el.className = `tree-item ${this.selectedTreeId === tree.id ? 'selected' : ''}`;
-            el.onclick = () => this.selectTree(tree);
+            el.className = `tree-item ${this.selectedTreeId === treeId ? 'selected' : ''}`;
+            el.onclick = () => this.selectTree(treeId);
             el.innerHTML = `
-                <h3>${tree.name || tree.id}</h3>
-                <p>${tree.description || 'No description'}</p>
+                <h3>${treeId}</h3>
+                <p>Custom Tree</p>
             `;
             list.appendChild(el);
         });
@@ -75,31 +64,41 @@ class TreeBrowser {
         this.renderTreeList(query);
     }
 
-    selectTree(tree) {
-        this.selectedTreeId = tree.id;
+    async selectTree(treeId) {
+        this.selectedTreeId = treeId;
         this.renderTreeList(); // Update selection UI
 
-        // Store the wrapper for editing
-        window.currentTreeWrapper = tree;
+        try {
+            const response = await fetch(`/api/trees/${treeId}`);
+            if (response.ok) {
+                const treeJson = await response.json();
+                window.currentTreeJson = treeJson;
 
-        // Load into editor
-        document.getElementById('tree_name').value = tree.name || "";
-        document.getElementById('tree_description').value = tree.description || "";
+                // Load into editor
+                document.getElementById('tree_name').value = treeId;
+                document.getElementById('tree_description').value = "";
 
-        // Build dynamic form
-        this.buildEditorForm(tree.config || {});
+                // Build dynamic form from config
+                this.buildEditorForm(treeJson.config || {});
 
-        // Update JSON editor
-        document.getElementById('json-editor').value = JSON.stringify(tree.config || {}, null, 2);
+                // Update JSON editor with full JSON
+                document.getElementById('json-editor').value = JSON.stringify(treeJson, null, 2);
 
-        this.updateDeleteButtonState();
+                this.updateDeleteButtonState();
 
-        // Switch to editor
-        switchTab('editor');
+                // Switch to editor
+                switchTab('editor');
 
-        // Trigger updates
-        updateMaterials();
-        generateTree();
+                // Trigger updates
+                updateMaterials();
+                generateTree();
+            } else {
+                alert("Failed to load tree");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error loading tree");
+        }
     }
 
     createNewTree() {
@@ -141,13 +140,13 @@ class TreeBrowser {
             decorators: []
         };
 
-        window.currentTreeWrapper = {
-            id: null,
+        window.currentTreeJson = {
+            type: "minecraft:tree",
             config: defaultConfig
         };
 
         this.buildEditorForm(defaultConfig);
-        document.getElementById('json-editor').value = JSON.stringify(defaultConfig, null, 2);
+        document.getElementById('json-editor').value = JSON.stringify(window.currentTreeJson, null, 2);
 
         this.updateDeleteButtonState();
 
@@ -157,42 +156,113 @@ class TreeBrowser {
     }
 
     buildEditorForm(config) {
-        if (!this.schemaFormBuilder) {
-            console.error("Schema builder not initialized");
-            return;
-        }
         const container = document.getElementById('dynamic-form-container');
-        this.schemaFormBuilder.buildForm(config, container);
+        container.innerHTML = ''; // Clear existing form
+
+        // Create a simple dynamic form based on the JSON structure
+        this.buildFormFromObject(config, container, '');
+    }
+
+    buildFormFromObject(obj, container, path) {
+        for (const key in obj) {
+            const value = obj[key];
+            const currentPath = path ? `${path}.${key}` : key;
+
+            const fieldDiv = document.createElement('div');
+            fieldDiv.className = 'form-field';
+            fieldDiv.innerHTML = `<label>${key}:</label>`;
+
+            if (typeof value === 'string') {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = value;
+                input.dataset.path = currentPath;
+                input.addEventListener('input', (e) => this.updateConfigFromForm());
+                fieldDiv.appendChild(input);
+            } else if (typeof value === 'number') {
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.value = value;
+                input.dataset.path = currentPath;
+                input.addEventListener('input', (e) => this.updateConfigFromForm());
+                fieldDiv.appendChild(input);
+            } else if (typeof value === 'boolean') {
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.checked = value;
+                input.dataset.path = currentPath;
+                input.addEventListener('change', (e) => this.updateConfigFromForm());
+                fieldDiv.appendChild(input);
+            } else if (Array.isArray(value)) {
+                // For arrays, show as JSON for now
+                const textarea = document.createElement('textarea');
+                textarea.value = JSON.stringify(value, null, 2);
+                textarea.dataset.path = currentPath;
+                textarea.rows = 3;
+                textarea.addEventListener('input', (e) => this.updateConfigFromForm());
+                fieldDiv.appendChild(textarea);
+            } else if (typeof value === 'object' && value !== null) {
+                // Nested object
+                const nestedDiv = document.createElement('div');
+                nestedDiv.className = 'nested-object';
+                this.buildFormFromObject(value, nestedDiv, currentPath);
+                fieldDiv.appendChild(nestedDiv);
+            }
+
+            container.appendChild(fieldDiv);
+        }
+    }
+
+    updateConfigFromForm() {
+        if (!window.currentTreeJson || !window.currentTreeJson.config) return;
+
+        const inputs = document.querySelectorAll('#dynamic-form-container input, #dynamic-form-container textarea');
+        inputs.forEach(input => {
+            const path = input.dataset.path;
+            if (!path) return;
+
+            const keys = path.split('.');
+            let current = window.currentTreeJson.config;
+
+            // Navigate to the nested property
+            for (let i = 0; i < keys.length - 1; i++) {
+                if (!current[keys[i]]) current[keys[i]] = {};
+                current = current[keys[i]];
+            }
+
+            const lastKey = keys[keys.length - 1];
+            if (input.type === 'checkbox') {
+                current[lastKey] = input.checked;
+            } else if (input.type === 'number') {
+                current[lastKey] = parseFloat(input.value) || 0;
+            } else if (input.tagName === 'TEXTAREA') {
+                try {
+                    current[lastKey] = JSON.parse(input.value);
+                } catch (e) {
+                    // Invalid JSON, keep as string for now
+                    current[lastKey] = input.value;
+                }
+            } else {
+                current[lastKey] = input.value;
+            }
+        });
     }
 
     syncConfigMode(mode) {
         // Called when switching tabs
         if (mode === 'json') {
             // Form -> JSON
-            const container = document.getElementById('dynamic-form-container');
-            if (this.schemaFormBuilder) {
-                const config = this.schemaFormBuilder.extractValues(container);
-                document.getElementById('json-editor').value = JSON.stringify(config, null, 2);
-
-                // Update wrapper config
-                if (window.currentTreeWrapper) {
-                    window.currentTreeWrapper.config = config;
-                }
-            }
+            this.updateConfigFromForm(); // Ensure config is updated from form
+            document.getElementById('json-editor').value = JSON.stringify(window.currentTreeJson, null, 2);
         } else {
             // JSON -> Form
             try {
                 const json = document.getElementById('json-editor').value;
-                const config = JSON.parse(json);
-                this.buildEditorForm(config);
-
-                // Update wrapper config
-                if (window.currentTreeWrapper) {
-                    window.currentTreeWrapper.config = config;
-                }
+                const fullJson = JSON.parse(json);
+                window.currentTreeJson = fullJson;
+                this.buildEditorForm(fullJson.config || {});
             } catch (e) {
                 alert("Invalid JSON in editor. Fix errors before switching back to Form view.");
-                // Prevent switch? For now just alert.
                 console.error(e);
             }
         }
@@ -205,47 +275,35 @@ class TreeBrowser {
             return;
         }
 
-        // Get current config from active view
-        let config = {};
+        // Get current full JSON from active view
+        let fullJson = window.currentTreeJson || { type: "minecraft:tree", config: {} };
         const activeTab = document.querySelector('.config-tab.active');
         if (activeTab && activeTab.dataset.mode === 'json') {
             try {
-                config = JSON.parse(document.getElementById('json-editor').value);
+                fullJson = JSON.parse(document.getElementById('json-editor').value);
             } catch (e) {
                 alert("Invalid JSON. Cannot save.");
                 return;
             }
         } else {
-            // Extract from form
-            const container = document.getElementById('dynamic-form-container');
-            if (this.schemaFormBuilder) {
-                config = this.schemaFormBuilder.extractValues(container);
-            }
+            // Ensure config is updated from form
+            this.updateConfigFromForm();
         }
 
-        // Get existing wrapper or create new one
-        let wrapper = window.currentTreeWrapper || {};
-
-        // Update metadata
-        wrapper.id = wrapper.id || name.toLowerCase().replace(/ /g, '_');
-        wrapper.name = name;
-        wrapper.description = document.getElementById('tree_description').value;
-        wrapper.namespace = wrapper.namespace || 'tree_engine';
-        wrapper.version = wrapper.version || '1.0';
-        wrapper.type = 'minecraft:tree';
-        wrapper.config = config;
+        // Set ID
+        fullJson.id = this.selectedTreeId || name.toLowerCase().replace(/ /g, '_');
 
         try {
-            const response = await fetch('/api/trees', {
+            const response = await fetch(`/api/trees/${fullJson.id}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(wrapper)
+                body: JSON.stringify(fullJson)
             });
 
             if (response.ok) {
                 const saved = await response.json();
                 this.selectedTreeId = saved.id;
-                window.currentTreeWrapper = saved;
+                window.currentTreeJson = fullJson;
                 await this.loadTrees();
                 this.renderTreeList();
                 this.updateDeleteButtonState();
@@ -350,20 +408,15 @@ class TreeBrowser {
             const response = await fetch(`/api/vanilla_tree/${id}`);
 
             if (response.ok) {
-                const vanillaConfig = await response.json();
+                const vanillaJson = await response.json();
                 modal.style.display = 'none';
 
-                console.log("Vanilla config loaded", vanillaConfig);
+                console.log("Vanilla config loaded", vanillaJson);
 
-                // Create a TreeWrapper with the vanilla config
-                const wrapper = {
-                    id: id + '_import',
-                    name: id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-                    description: `Imported from vanilla minecraft:${id}`,
-                    namespace: 'tree_engine',
-                    version: '1.0',
+                // Create the full JSON for editing
+                const fullJson = {
                     type: 'minecraft:tree',
-                    config: vanillaConfig.config || vanillaConfig  // Extract config if wrapped
+                    config: vanillaJson.config || vanillaJson  // If already wrapped, use config
                 };
 
                 this.selectedTreeId = null; // It's a new tree until saved
@@ -371,18 +424,18 @@ class TreeBrowser {
                 const nameInput = document.getElementById('tree_name');
                 const descInput = document.getElementById('tree_description');
 
-                if (nameInput) nameInput.value = wrapper.name;
-                if (descInput) descInput.value = wrapper.description;
+                if (nameInput) nameInput.value = id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                if (descInput) descInput.value = `Imported from vanilla minecraft:${id}`;
 
-                // Store the wrapper for later saving
-                window.currentTreeWrapper = wrapper;
+                // Store the full JSON for editing
+                window.currentTreeJson = fullJson;
 
                 // Build dynamic form
                 console.log("Building editor form...");
-                this.buildEditorForm(wrapper.config);
+                this.buildEditorForm(fullJson.config);
 
                 const jsonEditor = document.getElementById('json-editor');
-                if (jsonEditor) jsonEditor.value = JSON.stringify(wrapper.config, null, 2);
+                if (jsonEditor) jsonEditor.value = JSON.stringify(fullJson, null, 2);
 
                 this.updateDeleteButtonState();
 

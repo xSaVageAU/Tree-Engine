@@ -20,7 +20,6 @@ import net.minecraft.world.gen.foliage.BlobFoliagePlacer;
 import net.minecraft.world.gen.stateprovider.BlockStateProvider;
 import net.minecraft.world.gen.trunk.StraightTrunkPlacer;
 import savage.tree_engine.TreeEngine;
-import savage.tree_engine.config.TreeWrapper;
 import savage.tree_engine.world.PhantomWorld;
 
 import java.io.IOException;
@@ -150,13 +149,17 @@ public class WebEditorServer {
         public void handle(HttpExchange t) throws IOException {
             if ("POST".equals(t.getRequestMethod())) {
                 try {
-                    // Parse Request
+                    // Parse Request - raw Minecraft JSON config
                     InputStreamReader reader = new InputStreamReader(t.getRequestBody(), StandardCharsets.UTF_8);
-                    TreeWrapper def = GSON.fromJson(reader, TreeWrapper.class);
+                    com.google.gson.JsonElement json = com.google.gson.JsonParser.parseReader(reader);
+
+                    // Parse using JsonOps
+                    com.mojang.serialization.DataResult<TreeFeatureConfig> result = TreeFeatureConfig.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE, json);
+                    TreeFeatureConfig config = result.getOrThrow(s -> new RuntimeException("Failed to parse tree config: " + s));
 
                     // Schedule generation on main thread
                     CompletableFuture<List<BlockInfo>> future = CompletableFuture.supplyAsync(() -> {
-                        return generateTree(def);
+                        return generateTree(config);
                     }, minecraftServer);
 
                     List<BlockInfo> blocks = future.join();
@@ -184,23 +187,13 @@ public class WebEditorServer {
             }
         }
 
-        private List<BlockInfo> generateTree(TreeWrapper wrapper) {
+        private List<BlockInfo> generateTree(TreeFeatureConfig config) {
             PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager());
-            
-            // Parse wrapper.config JSON using Minecraft's codec system
-            try {
-                com.mojang.serialization.DataResult<TreeFeatureConfig> result = TreeFeatureConfig.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE, wrapper.config);
-                TreeFeatureConfig config = result.getOrThrow(errorMsg -> new IllegalStateException("Failed to parse tree config: " + errorMsg));
-                
-                ConfiguredFeature<?, ?> feature = new ConfiguredFeature<>(Feature.TREE, config);
 
-                // Generate at 0,0,0
-                feature.generate(world, null, Random.create(), new BlockPos(0, 0, 0));
-            } catch (Exception e) {
-                TreeEngine.LOGGER.error("Failed to parse tree config", e);
-                // Fallback or rethrow? Let's rethrow to show error in UI
-                throw new RuntimeException("Failed to parse tree config: " + e.getMessage(), e);
-            }
+            ConfiguredFeature<?, ?> feature = new ConfiguredFeature<>(Feature.TREE, config);
+
+            // Generate at 0,0,0
+            feature.generate(world, null, Random.create(), new BlockPos(0, 0, 0));
 
             return world.getPlacedBlocks();
         }

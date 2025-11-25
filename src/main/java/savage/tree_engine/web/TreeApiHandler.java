@@ -2,26 +2,34 @@ package savage.tree_engine.web;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.mojang.serialization.DataResult;
+import com.mojang.serialization.JsonOps;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
-import net.minecraft.resource.Resource;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.Identifier;
+import net.minecraft.world.gen.feature.ConfiguredFeature;
+import net.minecraft.world.gen.feature.TreeFeatureConfig;
 import savage.tree_engine.TreeEngine;
 import savage.tree_engine.config.TreeConfigManager;
-import savage.tree_engine.config.TreeWrapper;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TreeApiHandler implements HttpHandler {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Path DATAPACK_DIR = Paths.get("config", "tree_engine", "datapacks", "your_pack", "data", "tree_engine", "worldgen", "configured_feature");
     private final MinecraftServer minecraftServer;
 
     public TreeApiHandler(MinecraftServer server) {
@@ -55,23 +63,16 @@ public class TreeApiHandler implements HttpHandler {
                         String id = parts[3];
                         if ("GET".equals(method)) handleGet(exchange, id);
                         else if ("DELETE".equals(method)) handleDelete(exchange, id);
-                        else if ("PUT".equals(method)) handleSave(exchange);
+                        else if ("PUT".equals(method) || "POST".equals(method)) handleSave(exchange);
                         else sendError(exchange, 405, "Method not allowed");
                     }
                 } else if ("vanilla_trees".equals(endpoint)) {
                     if ("GET".equals(method)) handleListVanilla(exchange);
                     else sendError(exchange, 405, "Method not allowed");
                 } else if ("vanilla_tree".equals(endpoint)) {
-                    // GET /api/vanilla_tree/{id} - fetch raw JSON from Minecraft resources
+                    // GET /api/vanilla_tree/{id} - fetch raw JSON from Minecraft registry
                     if (parts.length == 4 && "GET".equals(method)) {
                         handleGetVanillaTree(exchange, parts[3]);
-                    } else {
-                        sendError(exchange, 405, "Method not allowed");
-                    }
-                } else if ("schema".equals(endpoint)) {
-                    // GET /api/schema - serve the tree feature JSON schema
-                    if ("GET".equals(method)) {
-                        handleGetSchema(exchange);
                     } else {
                         sendError(exchange, 405, "Method not allowed");
                     }
@@ -88,7 +89,7 @@ public class TreeApiHandler implements HttpHandler {
     }
 
     private void handleListVanilla(HttpExchange exchange) throws IOException {
-        List<String> trees = TreeConfigManager.getVanillaTrees();
+        List<String> trees = List.of("oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "azalea", "mangrove");
         String json = GSON.toJson(trees);
         sendResponse(exchange, 200, json);
     }
@@ -100,102 +101,112 @@ public class TreeApiHandler implements HttpHandler {
     private void handleGetVanillaTree(HttpExchange exchange, String treeId) throws IOException {
         try {
             Identifier featureId = Identifier.of("minecraft", treeId);
-            
+
             // Get the configured feature from the runtime registry
             var registryOpt = minecraftServer.getRegistryManager().getOptional(net.minecraft.registry.RegistryKeys.CONFIGURED_FEATURE);
             if (registryOpt.isEmpty()) {
                 sendError(exchange, 500, "Registry not available");
                 return;
             }
-            
+
             net.minecraft.registry.Registry<net.minecraft.world.gen.feature.ConfiguredFeature<?, ?>> registry = registryOpt.get();
-            net.minecraft.world.gen.feature.ConfiguredFeature<?, ?> configuredFeature = registry.get(featureId);
-            
-            if (configuredFeature == null) {
+            ConfiguredFeature<?, ?> feature = registry.get(featureId);
+
+            if (feature == null) {
                 sendError(exchange, 404, "Vanilla tree not found in registry: " + treeId);
                 return;
             }
-            
+
             // Check if it's a tree feature
-            if (!(configuredFeature.feature() instanceof net.minecraft.world.gen.feature.TreeFeature)) {
+            if (!(feature.feature() instanceof net.minecraft.world.gen.feature.TreeFeature)) {
                 sendError(exchange, 400, "Feature is not a tree: " + treeId);
                 return;
             }
-            
-            // Encode the config back to JSON using the codec
-            // This gives us a complete, valid JSON representation
-            com.mojang.serialization.DataResult<com.google.gson.JsonElement> result = 
-                net.minecraft.world.gen.feature.TreeFeatureConfig.CODEC.encodeStart(
-                    com.mojang.serialization.JsonOps.INSTANCE, 
-                    (net.minecraft.world.gen.feature.TreeFeatureConfig) configuredFeature.config()
-                );
-            
-            com.google.gson.JsonElement configJson = result.getOrThrow(errorMsg -> new IllegalStateException("Failed to encode tree config: " + errorMsg));
-            
-            // Wrap it in the expected format
-            com.google.gson.JsonObject wrapper = new com.google.gson.JsonObject();
-            wrapper.addProperty("type", "minecraft:tree");
-            wrapper.add("config", configJson);
-            
-            String json = GSON.toJson(wrapper);
-            sendResponse(exchange, 200, json);
-            
+
+            TreeFeatureConfig config = (TreeFeatureConfig) feature.config();
+
+            // Turn it into JSON to send to frontend
+            DataResult<JsonElement> result = TreeFeatureConfig.CODEC.encodeStart(JsonOps.INSTANCE, config);
+            JsonElement json = result.getOrThrow(s -> new RuntimeException("Failed to encode tree config: " + s));
+
+            sendResponse(exchange, 200, json.toString());
+
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to fetch vanilla tree from registry: " + treeId, e);
             sendError(exchange, 500, "Failed to fetch vanilla tree: " + e.getMessage());
         }
     }
 
-    /**
-     * Serve the tree feature JSON schema for dynamic UI generation.
-     */
-    private void handleGetSchema(HttpExchange exchange) throws IOException {
-        try (InputStream is = getClass().getClassLoader().getResourceAsStream("schemas/tree_feature_schema.json")) {
-            if (is == null) {
-                sendError(exchange, 404, "Schema file not found");
-                return;
-            }
-            
-            String json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            sendResponse(exchange, 200, json);
-        } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to load schema", e);
-            sendError(exchange, 500, "Failed to load schema: " + e.getMessage());
-        }
-    }
 
     private void handleList(HttpExchange exchange) throws IOException {
-        Map<String, TreeWrapper> trees = TreeConfigManager.getTrees();
-        List<TreeWrapper> list = new ArrayList<>(trees.values());
-        String json = GSON.toJson(list);
-        sendResponse(exchange, 200, json);
+        try {
+            Files.createDirectories(DATAPACK_DIR);
+            List<String> treeIds = Files.list(DATAPACK_DIR)
+                .filter(Files::isRegularFile)
+                .filter(p -> p.toString().endsWith(".json"))
+                .map(p -> p.getFileName().toString().replace(".json", ""))
+                .collect(Collectors.toList());
+            String json = GSON.toJson(treeIds);
+            sendResponse(exchange, 200, json);
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to list trees", e);
+            sendError(exchange, 500, "Failed to list trees");
+        }
     }
 
     private void handleGet(HttpExchange exchange, String id) throws IOException {
-        TreeWrapper tree = TreeConfigManager.getTree(id);
-        if (tree == null) {
-            sendError(exchange, 404, "Tree not found");
-            return;
+        try {
+            Path file = DATAPACK_DIR.resolve(id + ".json");
+            if (!Files.exists(file)) {
+                sendError(exchange, 404, "Tree not found");
+                return;
+            }
+            TreeFeatureConfig config = TreeConfigManager.loadTree(file);
+            DataResult<JsonElement> result = TreeFeatureConfig.CODEC.encodeStart(JsonOps.INSTANCE, config);
+            JsonElement configJson = result.getOrThrow(s -> new RuntimeException("Failed to encode tree config: " + s));
+
+            // Wrap in full configured feature format (without id, since it's the filename)
+            JsonObject full = new JsonObject();
+            full.addProperty("type", "minecraft:tree");
+            full.add("config", configJson);
+
+            sendResponse(exchange, 200, full.toString());
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to get tree: " + id, e);
+            sendError(exchange, 500, "Failed to get tree");
         }
-        String json = GSON.toJson(tree);
-        sendResponse(exchange, 200, json);
     }
 
     private void handleSave(HttpExchange exchange) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-            TreeWrapper tree = GSON.fromJson(reader, TreeWrapper.class);
-            
-            if (tree.id == null || tree.id.isEmpty()) {
-                if (tree.name != null) {
-                    tree.id = tree.name.toLowerCase().replace(" ", "_").replaceAll("[^a-z0-9_]", "");
-                } else {
-                    tree.id = "tree_" + System.currentTimeMillis();
-                }
+            JsonElement json = JsonParser.parseReader(reader);
+            JsonObject obj = json.getAsJsonObject();
+            JsonElement configJson = obj.get("config");
+
+            DataResult<TreeFeatureConfig> result = TreeFeatureConfig.CODEC.parse(JsonOps.INSTANCE, configJson);
+            TreeFeatureConfig config = result.getOrThrow(s -> new RuntimeException("Failed to parse tree config: " + s));
+
+            String id = exchange.getRequestURI().getPath().split("/")[3]; // from /api/trees/{id}
+            if (id == null || id.isEmpty()) {
+                id = "tree_" + System.currentTimeMillis();
             }
 
-            TreeConfigManager.saveTree(tree);
-            String json = GSON.toJson(tree);
-            sendResponse(exchange, 200, json);
+            Path file = DATAPACK_DIR.resolve(id + ".json");
+            Files.createDirectories(DATAPACK_DIR);
+
+            // Create full configured feature JSON
+            JsonObject fullJson = new JsonObject();
+            fullJson.addProperty("type", "minecraft:tree");
+            DataResult<JsonElement> configResult = TreeFeatureConfig.CODEC.encodeStart(JsonOps.INSTANCE, config);
+            JsonElement encodedConfigJson = configResult.getOrThrow(s -> new RuntimeException("Failed to encode tree config: " + s));
+            fullJson.add("config", encodedConfigJson);
+
+            // Write the full JSON to file
+            try (java.io.FileWriter writer = new java.io.FileWriter(file.toFile())) {
+                GSON.toJson(fullJson, writer);
+            }
+
+            sendResponse(exchange, 200, "{\"id\": \"" + id + "\"}");
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to save tree", e);
             sendError(exchange, 400, "Invalid JSON");
@@ -203,10 +214,16 @@ public class TreeApiHandler implements HttpHandler {
     }
 
     private void handleDelete(HttpExchange exchange, String id) throws IOException {
-        if (TreeConfigManager.deleteTree(id)) {
-            sendResponse(exchange, 200, "{\"success\": true}");
-        } else {
-            sendError(exchange, 404, "Tree not found");
+        try {
+            Path file = DATAPACK_DIR.resolve(id + ".json");
+            if (Files.deleteIfExists(file)) {
+                sendResponse(exchange, 200, "{\"success\": true}");
+            } else {
+                sendError(exchange, 404, "Tree not found");
+            }
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to delete tree: " + id, e);
+            sendError(exchange, 500, "Failed to delete tree");
         }
     }
 

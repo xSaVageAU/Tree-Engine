@@ -117,12 +117,12 @@ async function updateMaterials() {
     const pack = document.getElementById('resource_pack').value;
     const path = `/textures/${pack}/`;
 
-    // Extract block names from the current wrapper or form
+    // Extract block names from the current tree JSON or form
     let trunkRaw = "minecraft:oak_log";
     let foliageRaw = "minecraft:oak_leaves";
 
-    if (window.currentTreeWrapper && window.currentTreeWrapper.config) {
-        const config = window.currentTreeWrapper.config;
+    if (window.currentTreeJson && window.currentTreeJson.config) {
+        const config = window.currentTreeJson.config;
         if (config.trunk_provider && config.trunk_provider.state) {
             trunkRaw = config.trunk_provider.state.Name || trunkRaw;
         }
@@ -193,6 +193,26 @@ async function updateMaterials() {
     leafMesh.material = leafMat;
     leafMesh.isVisible = false;
     masterMeshes['leaves'] = leafMesh;
+
+    // --- 3. DIRT ---
+    const dirtMat = new BABYLON.StandardMaterial("dirtMat", scene);
+    dirtMat.diffuseTexture = loadTex("dirt.png");
+    dirtMat.specularColor = BABYLON.Color3.Black();
+
+    const dirtMesh = BABYLON.MeshBuilder.CreateBox("master_dirt", { size: 1 }, scene);
+    dirtMesh.material = dirtMat;
+    dirtMesh.isVisible = false;
+    masterMeshes['dirt'] = dirtMesh;
+
+    // --- 4. BEEHIVE/BEE NEST ---
+    const beehiveMat = new BABYLON.StandardMaterial("beehiveMat", scene);
+    beehiveMat.diffuseTexture = loadTex("bee_nest_front.png"); // Use bee_nest texture for both
+    beehiveMat.specularColor = BABYLON.Color3.Black();
+
+    const beehiveMesh = BABYLON.MeshBuilder.CreateBox("master_beehive", { size: 1 }, scene);
+    beehiveMesh.material = beehiveMat;
+    beehiveMesh.isVisible = false;
+    masterMeshes['beehive'] = beehiveMesh;
 }
 
 async function generateTree() {
@@ -201,61 +221,25 @@ async function generateTree() {
     if (btn) btn.disabled = true;
     if (status) status.textContent = "Generating...";
 
-    // Get the full wrapper object (backend expects TreeWrapper, not just config)
-    let wrapper = window.currentTreeWrapper;
+    // Get the raw Minecraft JSON config
+    let config = null;
 
-    if (!wrapper) {
-        // If no wrapper set, create a temporary one
+    if (window.currentTreeJson && window.currentTreeJson.config) {
+        config = window.currentTreeJson.config;
+    } else {
+        // Extract from form
         const container = document.getElementById('dynamic-form-container');
         if (window.treeBrowser && window.treeBrowser.schemaFormBuilder && container) {
-            const config = window.treeBrowser.schemaFormBuilder.extractValues(container);
-            wrapper = {
-                id: 'preview',
-                name: 'Preview',
-                description: 'Preview tree',
-                type: 'minecraft:tree',
-                config: config
-            };
-        } else {
-            console.error('No tree wrapper available for generation');
-            if (status) status.textContent = 'Error: No tree data';
-            if (btn) btn.disabled = false;
-            return;
+            config = window.treeBrowser.schemaFormBuilder.extractValues(container);
         }
     }
 
-    // We need to transform the native config into the flat format expected by the /api/generate endpoint
-    // OR update the backend to accept the full native config.
-    // The current /api/generate endpoint (WebEditorServer.java) likely expects the flat format.
-    // Let's check WebEditorServer.java. 
-    // Actually, looking at the previous generateTree code, it was sending a flat object:
-    // { trunk_block, foliage_block, trunk_height_min, ... }
-
-    // However, the goal of this refactor was to use the native JSON structure.
-    // If the backend /api/generate still expects the flat structure, we have a mismatch.
-    // But wait, the user said "Backend - Fully Complete... TreeWrapper class created with native Minecraft JSON config".
-    // This implies the backend might now handle the native config?
-    // Let's assume the backend has been updated to accept the native config structure if we send it wrapped or as is.
-    // But if /api/generate hasn't been updated, we might need to map it.
-
-    // Let's try sending the native config. If it fails, we know we need to update the backend or map it.
-    // But the previous code was sending a flat object.
-    // Let's look at the previous code again.
-    /*
-    const config = {
-        trunk_block: document.getElementById('trunk_block').value,
-        ...
-    };
-    */
-
-    // If I send the raw config, the backend might not know how to handle it if it expects the flat format.
-    // However, the user said "All CRUD operations updated for TreeWrapper".
-    // This usually refers to /api/trees. /api/generate might be different.
-    // Let's try to send the full config object. The backend *should* be able to handle it if it's "Fully Complete".
-    // If not, I'll see an error.
-
-    // Actually, to be safe and since I can't check the Java code right now (I can view it but I want to fix JS first),
-    // I will assume the backend expects the native config structure now because the whole point was to move to data-driven config.
+    if (!config) {
+        console.error('No tree config available for generation');
+        if (status) status.textContent = 'Error: No tree data';
+        if (btn) btn.disabled = false;
+        return;
+    }
 
     await updateMaterials();
 
@@ -263,7 +247,7 @@ async function generateTree() {
         const response = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(wrapper)
+            body: JSON.stringify(config)
         });
         if (!response.ok) throw new Error("API Error: " + await response.text());
         const blocks = await response.json();
@@ -278,34 +262,31 @@ async function generateTree() {
 }
 
 function renderScene(blocks) {
-    const matrices = { 'log': [], 'leaves': [] };
+    const matrices = { 'log': [], 'leaves': [], 'dirt': [], 'beehive': [] };
     blocks.forEach(b => {
-        const type = b.block.includes('log') || b.block.includes('wood') ? 'log' : 'leaves';
+        let type = 'leaves'; // default
+        if (b.block.includes('log') || b.block.includes('wood')) type = 'log';
+        else if (b.block.includes('dirt')) type = 'dirt';
+        else if (b.block.includes('beehive') || b.block.includes('bee_nest')) type = 'beehive';
+        else if (!b.block.includes('leaves')) type = 'leaves'; // if not leaves, but wait
+
         const matrix = BABYLON.Matrix.Translation(b.x, b.y + 0.5, b.z);
         matrices[type].push(matrix);
     });
 
-    if (masterMeshes['log']) {
-        masterMeshes['log'].thinInstanceSetBuffer("matrix", null);
-        if (matrices['log'].length > 0) {
-            const bufferLog = new Float32Array(matrices['log'].length * 16);
-            matrices['log'].forEach((m, i) => m.copyToArray(bufferLog, i * 16));
-            masterMeshes['log'].thinInstanceSetBuffer("matrix", bufferLog, 16, true);
-            masterMeshes['log'].isVisible = true;
-            shadowGenerator.addShadowCaster(masterMeshes['log']);
-        } else masterMeshes['log'].isVisible = false;
-    }
-
-    if (masterMeshes['leaves']) {
-        masterMeshes['leaves'].thinInstanceSetBuffer("matrix", null);
-        if (matrices['leaves'].length > 0) {
-            const bufferLeaf = new Float32Array(matrices['leaves'].length * 16);
-            matrices['leaves'].forEach((m, i) => m.copyToArray(bufferLeaf, i * 16));
-            masterMeshes['leaves'].thinInstanceSetBuffer("matrix", bufferLeaf, 16, true);
-            masterMeshes['leaves'].isVisible = true;
-            shadowGenerator.addShadowCaster(masterMeshes['leaves']);
-        } else masterMeshes['leaves'].isVisible = false;
-    }
+    const types = ['log', 'leaves', 'dirt', 'beehive'];
+    types.forEach(type => {
+        if (masterMeshes[type]) {
+            masterMeshes[type].thinInstanceSetBuffer("matrix", null);
+            if (matrices[type].length > 0) {
+                const buffer = new Float32Array(matrices[type].length * 16);
+                matrices[type].forEach((m, i) => m.copyToArray(buffer, i * 16));
+                masterMeshes[type].thinInstanceSetBuffer("matrix", buffer, 16, true);
+                masterMeshes[type].isVisible = true;
+                shadowGenerator.addShadowCaster(masterMeshes[type]);
+            } else masterMeshes[type].isVisible = false;
+        }
+    });
 }
 
 function setupUI() {
@@ -337,13 +318,23 @@ function setupUI() {
     // JSON editor changes
     const jsonEditor = document.getElementById('json-editor');
     if (jsonEditor) {
-        jsonEditor.addEventListener('input', debouncedGenerate);
+        jsonEditor.addEventListener('input', () => {
+            try {
+                const json = jsonEditor.value;
+                const parsed = JSON.parse(json);
+                window.currentTreeJson = parsed;
+                debouncedGenerate();
+            } catch (e) {
+                // Invalid JSON, don't update
+            }
+        });
     }
 
     // Biome select was removed, so no listener needed.
 
     // Helper to trigger rotation
     document.getElementById('btn_rotate')?.addEventListener('click', toggleRotation);
+    document.getElementById('btn_reset_camera')?.addEventListener('click', resetCamera);
 }
 
 function debounce(func, wait) {

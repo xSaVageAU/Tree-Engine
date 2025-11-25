@@ -2,183 +2,54 @@ package savage.tree_engine.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import net.fabricmc.loader.api.FabricLoader;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.mojang.serialization.DataResult;
+import com.mojang.serialization.JsonOps;
+import net.minecraft.world.gen.feature.TreeFeatureConfig;
 import savage.tree_engine.TreeEngine;
 
-import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 
-/**
- * Manages loading, saving, and caching of tree configurations.
- * Now uses TreeWrapper objects that embed native Minecraft tree JSON.
- */
 public class TreeConfigManager {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Map<String, TreeWrapper> LOADED_TREES = new HashMap<>();
 
-    /**
-     * Load all tree configuration files from the config directory.
-     */
-    public static void load() {
-        LOADED_TREES.clear();
-        Path configDir = FabricLoader.getInstance().getConfigDir().resolve("tree_engine/trees");
-        
-        try {
-            if (!Files.exists(configDir)) {
-                Files.createDirectories(configDir);
-                TreeEngine.LOGGER.info("Created trees config directory");
-            }
+    public static TreeFeatureConfig loadTree(Path jsonFile) {
+        try (Reader reader = Files.newBufferedReader(jsonFile)) {
+            JsonElement json = JsonParser.parseReader(reader);
 
-            File[] files = configDir.toFile().listFiles((dir, name) -> name.endsWith(".json"));
-            if (files == null) return;
+            // The file contains full configured feature JSON: {"type": "minecraft:tree", "config": {...}}
+            // Extract the config part
+            JsonObject obj = json.getAsJsonObject();
+            JsonElement configJson = obj.get("config");
 
-            for (File file : files) {
-                try (FileReader reader = new FileReader(file)) {
-                    TreeWrapper wrapper = GSON.fromJson(reader, TreeWrapper.class);
-                    String id = file.getName().replace(".json", "");
-                    // Ensure ID matches filename
-                    if (wrapper.id == null) wrapper.id = id;
-                    LOADED_TREES.put(id, wrapper);
-                } catch (Exception e) {
-                    TreeEngine.LOGGER.error("Failed to load tree config: " + file.getName(), e);
-                }
-            }
+            // This ONE line does all the parsing, validation, and object creation
+            // exactly how Minecraft does it. If this fails, your JSON is invalid.
+            DataResult<TreeFeatureConfig> result = TreeFeatureConfig.CODEC.parse(JsonOps.INSTANCE, configJson);
 
-            TreeEngine.LOGGER.info("Loaded " + LOADED_TREES.size() + " tree configurations");
-
+            return result.getOrThrow(s -> new RuntimeException("Failed to parse tree config: " + s));
         } catch (IOException e) {
-            TreeEngine.LOGGER.error("Failed to load tree configs", e);
+            TreeEngine.LOGGER.error("Failed to read tree config file: " + jsonFile, e);
+            throw new RuntimeException(e);
         }
     }
 
-    /**
-     * Get all loaded trees.
-     */
-    public static Map<String, TreeWrapper> getTrees() {
-        return LOADED_TREES;
-    }
-    
-    /**
-     * Get a specific tree by ID.
-     */
-    public static TreeWrapper getTree(String id) {
-        return LOADED_TREES.get(id);
-    }
-    
-    /**
-     * Save a tree configuration to disk.
-     */
-    public static void saveTree(TreeWrapper tree) {
-        if (tree.id == null || tree.id.isEmpty()) {
-            throw new IllegalArgumentException("Tree ID cannot be empty");
-        }
-        
-        // Ensure type is set
-        if (tree.type == null || tree.type.isEmpty()) {
-            tree.type = "minecraft:tree";
-        }
-        
-        LOADED_TREES.put(tree.id, tree);
-        
-        Path configDir = FabricLoader.getInstance().getConfigDir().resolve("tree_engine/trees");
-        Path file = configDir.resolve(tree.id + ".json");
-        
+    public static void saveTree(Path jsonFile, TreeFeatureConfig config) {
+        // This ONE line converts the complex Minecraft object back to JSON
+        DataResult<JsonElement> result = TreeFeatureConfig.CODEC.encodeStart(JsonOps.INSTANCE, config);
+
+        JsonElement json = result.getOrThrow(s -> new RuntimeException("Failed to encode tree config: " + s));
+
+        // Write 'json' to file using Gson just for pretty printing
         try {
-            Files.createDirectories(configDir);
-            String json = GSON.toJson(tree);
-            Files.writeString(file, json);
-            TreeEngine.LOGGER.info("Saved tree config: " + tree.id);
+            Files.writeString(jsonFile, GSON.toJson(json));
         } catch (IOException e) {
-            TreeEngine.LOGGER.error("Failed to save tree config: " + tree.id, e);
+            TreeEngine.LOGGER.error("Failed to write tree config file: " + jsonFile, e);
+            throw new RuntimeException(e);
         }
-    }
-    
-    /**
-     * Delete a tree configuration.
-     */
-    public static boolean deleteTree(String id) {
-        if (!LOADED_TREES.containsKey(id)) return false;
-        
-        LOADED_TREES.remove(id);
-        
-        Path configDir = FabricLoader.getInstance().getConfigDir().resolve("tree_engine/trees");
-        Path file = configDir.resolve(id + ".json");
-        
-        try {
-            boolean deleted = Files.deleteIfExists(file);
-            if (deleted) {
-                TreeEngine.LOGGER.info("Deleted tree config: " + id);
-            }
-            return deleted;
-        } catch (IOException e) {
-            TreeEngine.LOGGER.error("Failed to delete tree config: " + id, e);
-            return false;
-        }
-    }
-
-    /**
-     * Get list of all vanilla Minecraft tree IDs available for import.
-     */
-    public static java.util.List<String> getVanillaTrees() {
-        java.util.List<String> trees = new java.util.ArrayList<>();
-        trees.add("acacia");
-        trees.add("azalea_tree");
-        trees.add("birch");
-        trees.add("birch_bees_0002");
-        trees.add("birch_bees_002");
-        trees.add("birch_bees_005");
-        trees.add("cherry");
-        trees.add("cherry_bees_005");
-        trees.add("dark_oak");
-        trees.add("fancy_oak");
-        trees.add("fancy_oak_bees");
-        trees.add("fancy_oak_bees_0002");
-        trees.add("fancy_oak_bees_002");
-        trees.add("fancy_oak_bees_005");
-        trees.add("jungle_bush");
-        trees.add("jungle_tree");
-        trees.add("jungle_tree_no_vine");
-        trees.add("mangrove");
-        trees.add("mega_jungle_tree");
-        trees.add("mega_pine");
-        trees.add("mega_spruce");
-        trees.add("oak");
-        trees.add("oak_bees_0002");
-        trees.add("oak_bees_002");
-        trees.add("oak_bees_005");
-        trees.add("pale_oak");
-        trees.add("pine");
-        trees.add("spruce");
-        trees.add("super_birch_bees");
-        trees.add("super_birch_bees_0002");
-        trees.add("swamp_oak");
-        trees.add("tall_mangrove");
-        return trees;
-    }
-    
-    /**
-     * Helper to convert snake_case to Title Case.
-     */
-    private static String toTitleCase(String input) {
-        StringBuilder titleCase = new StringBuilder(input.length());
-        boolean nextTitleCase = true;
-
-        for (char c : input.toCharArray()) {
-            if (Character.isSpaceChar(c)) {
-                nextTitleCase = true;
-            } else if (nextTitleCase) {
-                c = Character.toTitleCase(c);
-                nextTitleCase = false;
-            }
-
-            titleCase.append(c);
-        }
-
-        return titleCase.toString();
     }
 }

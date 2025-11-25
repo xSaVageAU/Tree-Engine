@@ -639,6 +639,37 @@ button.secondary:hover {
     text-transform: uppercase;
 }
 
+.form-field input,
+.form-field textarea {
+    width: 100%;
+    padding: 8px;
+    background: var(--bg-input);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text-main);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+}
+
+.form-field input:focus,
+.form-field textarea:focus {
+    border-color: var(--accent);
+    background: #444;
+}
+
+.form-field textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+/* Nested Objects */
+.nested-object {
+    margin-left: 15px;
+    padding-left: 10px;
+    border-left: 2px solid var(--accent);
+    margin-top: 5px;
+}
+
 /* Nested Objects */
 fieldset.config-object {
     border: 1px solid #333;
