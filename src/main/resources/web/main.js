@@ -191,7 +191,10 @@ async function generateTree() {
         trunk_height_min: parseInt(document.getElementById('trunk_height_min').value),
         trunk_height_max: parseInt(document.getElementById('trunk_height_max').value),
         foliage_radius: parseInt(document.getElementById('foliage_radius').value),
-        foliage_offset: parseInt(document.getElementById('foliage_offset').value)
+        foliage_offset: parseInt(document.getElementById('foliage_offset').value),
+        trunk_placer_type: document.getElementById('trunk_placer_type').value,
+        foliage_placer_type: document.getElementById('foliage_placer_type').value,
+        foliage_height: parseInt(document.getElementById('foliage_height').value)
     };
 
     await updateMaterials();
@@ -259,6 +262,7 @@ function setupUI() {
     bindRange('trunk_height_max', 'height_max_val');
     bindRange('foliage_radius', 'radius_val');
     bindRange('foliage_offset', 'offset_val');
+    bindRange('foliage_height', 'foliage_height_val');
 
     const bindEnter = (id) => {
         document.getElementById(id).addEventListener('keydown', (e) => {
@@ -277,6 +281,10 @@ function setupUI() {
         updateMaterials();
         generateTree();
     });
+
+    // Bind placer type changes to regenerate
+    document.getElementById('trunk_placer_type').addEventListener('change', generateTree);
+    document.getElementById('foliage_placer_type').addEventListener('change', generateTree);
 }
 
 function debounce(func, wait) {

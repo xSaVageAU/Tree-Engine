@@ -26,7 +26,9 @@
         <!-- LIBRARY TAB -->
         <div id="tab-library" class="tab-content active" style="padding: 0;">
             <div style="padding: 15px 15px 0 15px;">
-                <button id="btn-create-new" style="width: 100%; margin-bottom: 10px;">+ Create New Tree</button>
+                <button id="btn-create-new" style="width: 100%; margin-bottom: 5px;">+ Create New Tree</button>
+                <button id="btn-import" class="secondary" style="width: 100%; margin-bottom: 10px;">Import Vanilla
+                    Tree</button>
                 <input type="search" id="tree-search" placeholder="Search trees..." style="margin-bottom: 5px;">
             </div>
             <div id="tree-list">
@@ -79,6 +81,41 @@
                 <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
 
                 <div class="control-group">
+                    <label>Trunk Placer</label>
+                    <select id="trunk_placer_type">
+                        <option value="straight">Straight</option>
+                        <option value="forking">Forking (Fancy Oak)</option>
+                        <option value="giant">Giant (2x2 Trunk)</option>
+                        <option value="mega_jungle">Mega Jungle</option>
+                        <option value="dark_oak">Dark Oak</option>
+                        <option value="cherry">Cherry</option>
+                        <option value="upwards_branching">Upwards Branching (Pale Oak)</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Foliage Placer</label>
+                    <select id="foliage_placer_type">
+                        <option value="blob">Blob (Oak/Birch)</option>
+                        <option value="spruce">Spruce</option>
+                        <option value="pine">Pine</option>
+                        <option value="jungle">Jungle</option>
+                        <option value="acacia">Acacia</option>
+                        <option value="dark_oak">Dark Oak</option>
+                        <option value="mega_pine">Mega Pine</option>
+                        <option value="random_spread">Random Spread (Cherry/Azalea)</option>
+                        <option value="cherry">Cherry</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Foliage Height <span class="value-display" id="foliage_height_val">3</span></label>
+                    <input type="range" id="foliage_height" min="1" max="8" value="3">
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
+
+                <div class="control-group">
                     <label>Min Height <span class="value-display" id="height_min_val">4</span></label>
                     <input type="range" id="trunk_height_min" min="1" max="15" value="4">
                 </div>
@@ -106,6 +143,17 @@
                 <button id="btn-save" style="flex: 1;">Save Tree</button>
                 <button id="btn-delete" class="secondary" style="flex: 1;">Delete</button>
             </div>
+        </div>
+    </div>
+
+    <!-- IMPORT MODAL -->
+    <div id="import-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Import Vanilla Tree</h3>
+            <input type="search" id="import-search" placeholder="Search vanilla trees..."
+                style="margin-bottom: 10px; width: 100%;">
+            <div id="vanilla-list" style="height: 300px; overflow-y: auto; margin-bottom: 10px;"></div>
+            <button onclick="document.getElementById('import-modal').style.display='none'">Cancel</button>
         </div>
     </div>
 

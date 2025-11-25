@@ -31,29 +31,32 @@ public class TreeApiHandler implements HttpHandler {
         
         String[] parts = path.split("/");
         // Path is like /api/trees or /api/trees/{id}
-        // parts[0] = "", parts[1] = "api", parts[2] = "trees", parts[3] = "{id}"
+        // parts[0] = "", parts[1] = "api", parts[2] = "trees"
         
         try {
-            if (parts.length == 3) {
-                // /api/trees
-                if ("GET".equals(method)) {
-                    handleList(exchange);
-                } else if ("POST".equals(method)) {
-                    handleSave(exchange);
+            if (parts.length >= 3) {
+                String endpoint = parts[2];
+                
+                if ("trees".equals(endpoint)) {
+                    if (parts.length == 3) {
+                        if ("GET".equals(method)) handleList(exchange);
+                        else if ("POST".equals(method)) handleSave(exchange);
+                        else sendError(exchange, 405, "Method not allowed");
+                    } else if (parts.length == 4) {
+                        String id = parts[3];
+                        if ("GET".equals(method)) handleGet(exchange, id);
+                        else if ("DELETE".equals(method)) handleDelete(exchange, id);
+                        else if ("PUT".equals(method)) handleSave(exchange);
+                        else sendError(exchange, 405, "Method not allowed");
+                    }
+                } else if ("vanilla_trees".equals(endpoint)) {
+                    if ("GET".equals(method)) handleListVanilla(exchange);
+                    else sendError(exchange, 405, "Method not allowed");
+                } else if ("import_vanilla".equals(endpoint)) {
+                    if ("POST".equals(method)) handleImportVanilla(exchange);
+                    else sendError(exchange, 405, "Method not allowed");
                 } else {
-                    sendError(exchange, 405, "Method not allowed");
-                }
-            } else if (parts.length == 4) {
-                // /api/trees/{id}
-                String id = parts[3];
-                if ("GET".equals(method)) {
-                    handleGet(exchange, id);
-                } else if ("DELETE".equals(method)) {
-                    handleDelete(exchange, id);
-                } else if ("PUT".equals(method)) {
-                    handleSave(exchange); // PUT is same as POST for us (upsert)
-                } else {
-                    sendError(exchange, 405, "Method not allowed");
+                    sendError(exchange, 404, "Not found");
                 }
             } else {
                 sendError(exchange, 404, "Not found");
@@ -61,6 +64,36 @@ public class TreeApiHandler implements HttpHandler {
         } catch (Exception e) {
             TreeEngine.LOGGER.error("API Error", e);
             sendError(exchange, 500, "Internal Server Error: " + e.getMessage());
+        }
+    }
+
+    private void handleListVanilla(HttpExchange exchange) throws IOException {
+        List<String> trees = TreeConfigManager.getVanillaTrees();
+        String json = GSON.toJson(trees);
+        sendResponse(exchange, 200, json);
+    }
+
+    private void handleImportVanilla(HttpExchange exchange) throws IOException {
+        try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
+            Map<String, String> body = GSON.fromJson(reader, Map.class);
+            String id = body.get("id");
+            
+            if (id == null) {
+                sendError(exchange, 400, "Missing 'id' field");
+                return;
+            }
+
+            TreeDefinition def = TreeConfigManager.importVanillaTree(id);
+            if (def == null) {
+                sendError(exchange, 404, "Vanilla tree not found or invalid");
+                return;
+            }
+            
+            String json = GSON.toJson(def);
+            sendResponse(exchange, 200, json);
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to import tree", e);
+            sendError(exchange, 500, "Import failed: " + e.getMessage());
         }
     }
 

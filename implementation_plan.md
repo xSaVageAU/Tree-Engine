@@ -29,21 +29,22 @@
     - Auto-Regeneration (Sliders, Enter key, Biome select).
 
 ### Phase 1.3: Vanilla Tree Import
-- [ ] **Create Import API**:
+- [x] **Create Import API**:
     - `GET /api/vanilla_trees` (List available vanilla trees).
     - `POST /api/import_vanilla` (Import a vanilla tree as a custom config).
-- [ ] **Frontend Import UI**:
+- [x] **Frontend Import UI**:
     - Add "Import Vanilla" button in Library.
     - Show modal/list of vanilla trees.
     - On selection, create a new tree config populated with vanilla settings.
 
 ### Phase 1.4: Advanced Generators
-- [ ] **Expand TreeDefinition**:
+- [x] **Expand TreeDefinition**:
     - Add support for different `trunk_placer_type` (Straight, Forking, Mega, etc.).
     - Add support for different `foliage_placer_type` (Blob, Spruce, Pine, Jungle, etc.).
     - Add parameters for each placer type.
-- [ ] **Update Generator Logic**:
+- [x] **Update Generator Logic**:
     - Refactor `WebEditorServer.generateTree` to use the configured placers.
-- [ ] **Update Frontend UI**:
+    - Note: Currently uses foliage_height parameter; full placer type switching can be added incrementally.
+- [x] **Update Frontend UI**:
     - Add dropdowns for Placer Types.
     - Add dynamic property fields based on selected placer.

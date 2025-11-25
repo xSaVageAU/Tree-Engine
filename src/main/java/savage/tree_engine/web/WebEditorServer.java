@@ -82,7 +82,7 @@ public class WebEditorServer {
             server = HttpServer.create(new InetSocketAddress(3000), 0);
             server.createContext("/", new StaticHandler());
             server.createContext("/api/generate", new GenerateHandler());
-            server.createContext("/api/trees", new TreeApiHandler());
+            server.createContext("/api/", new TreeApiHandler());
             server.createContext("/textures/", new TextureHandler());
             server.setExecutor(null); // creates a default executor
             server.start();
@@ -197,14 +197,15 @@ public class WebEditorServer {
             int heightMax = def.trunk_height_max != null ? def.trunk_height_max : 6;
             int radius = def.foliage_radius != null ? def.foliage_radius : 2;
             int offset = def.foliage_offset != null ? def.foliage_offset : 0;
+            int foliageHeight = def.foliage_height != null ? def.foliage_height : 3;
 
             ConfiguredFeature<?, ?> feature = new ConfiguredFeature<>(
                 Feature.TREE,
                 new TreeFeatureConfig.Builder(
                     BlockStateProvider.of(trunkBlock),
-                    new StraightTrunkPlacer(heightMin, heightMax - heightMin, 0),
+                    PlacerFactory.createTrunkPlacer(def.trunk_placer_type, heightMin, heightMax),
                     BlockStateProvider.of(foliageBlock),
-                    new BlobFoliagePlacer(ConstantIntProvider.create(radius), ConstantIntProvider.create(offset), 3),
+                    PlacerFactory.createFoliagePlacer(def.foliage_placer_type, radius, offset, foliageHeight),
                     new net.minecraft.world.gen.feature.size.TwoLayersFeatureSize(1, 0, 1)
                 ).build()
             );
