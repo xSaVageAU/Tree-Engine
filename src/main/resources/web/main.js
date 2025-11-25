@@ -133,11 +133,10 @@ async function updateMaterials() {
 
     const trunkName = trunkRaw.split(':').pop();
     const foliageName = foliageRaw.split(':').pop();
-    // Biome select might still be there if I didn't remove it from index.html (I did remove it)
-    // Wait, I removed the biome select from index.html in the rewrite.
-    // So we should probably default to 'plains' or add it back to metadata if needed.
-    // For now, let's default to plains.
-    const selectedBiome = 'plains';
+
+    // Read biome from selector
+    const biomeSelect = document.getElementById('biome_select');
+    const selectedBiome = biomeSelect ? biomeSelect.value : 'plains';
     const leafColor = resolveLeafColor(foliageRaw, selectedBiome);
 
     const loadTex = (name) => {
@@ -347,7 +346,10 @@ function setupUI() {
         });
     }
 
-    // Biome select was removed, so no listener needed.
+    // Biome selector
+    document.getElementById('biome_select')?.addEventListener('change', () => {
+        debouncedGenerate();
+    });
 
     // Helper to trigger rotation
     document.getElementById('btn_rotate')?.addEventListener('click', toggleRotation);
