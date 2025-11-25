@@ -205,6 +205,146 @@ class SchemaFormBuilder {
         return textarea;
     }
 
+    /**
+     * Extract configuration object from the generated form
+     */
+    extractValues(containerElement) {
+        const config = {};
+        const properties = this.schema.properties || {};
+
+        for (const key of Object.keys(properties)) {
+            const fieldWrapper = containerElement.querySelector(`.form-field[data-field-key="${key}"]`);
+            if (!fieldWrapper) continue;
+
+            const input = fieldWrapper.querySelector('[data-config-key]');
+            if (!input) continue;
+
+            const definition = properties[key];
+            config[key] = this.extractFieldValue(key, definition, input);
+        }
+
+        return config;
+    }
+
+    extractFieldValue(key, definition, inputElement) {
+        const type = definition.type;
+
+        if (definition.enum) {
+            return inputElement.value;
+        } else if (type === 'boolean') {
+            return inputElement.checked;
+        } else if (type === 'integer') {
+            return parseInt(inputElement.value) || 0;
+        } else if (type === 'number') {
+            return parseFloat(inputElement.value) || 0;
+        } else if (type === 'string') {
+            return inputElement.value;
+        } else if (type === 'object') {
+            return this.extractObjectValue(key, definition, inputElement);
+        } else if (type === 'array') {
+            return this.extractArrayValue(key, definition, inputElement);
+        } else {
+            // Fallback: raw JSON
+            try {
+                return JSON.parse(inputElement.value);
+            } catch (e) {
+                console.warn(`Invalid JSON for ${key}`, e);
+                return null;
+            }
+        }
+    }
+
+    extractObjectValue(key, definition, fieldset) {
+        const obj = {};
+        const properties = definition.properties || {};
+
+        for (const [subKey, subDef] of Object.entries(properties)) {
+            // Find the wrapper for this sub-field within the fieldset
+            // Note: We need to be careful not to select nested fields of nested objects
+            // So we look for direct children or use a specific selector strategy
+
+            // A simple way is to query all form-fields inside and filter by key, 
+            // but since we have a flat structure inside the fieldset (legend, div.form-field, div.form-field...),
+            // we can just look for the specific data-field-key
+
+            // However, querySelector might find a deeply nested one. 
+            // So we iterate over children to find the right one.
+            let subFieldWrapper = null;
+            for (const child of fieldset.children) {
+                if (child.classList.contains('form-field') && child.dataset.fieldKey === subKey) {
+                    subFieldWrapper = child;
+                    break;
+                }
+            }
+
+            if (!subFieldWrapper) continue;
+
+            const input = subFieldWrapper.querySelector('[data-config-key]');
+            if (input) {
+                obj[subKey] = this.extractFieldValue(subKey, subDef, input);
+            }
+        }
+
+        return obj;
+    }
+
+    extractArrayValue(key, definition, container) {
+        const itemsList = container.querySelector('.array-items');
+        const items = [];
+
+        if (!itemsList) return items;
+
+        for (const itemWrapper of itemsList.children) {
+            if (!itemWrapper.classList.contains('array-item')) continue;
+
+            const content = itemWrapper.querySelector('.item-content');
+            const itemSchema = definition.items;
+
+            if (itemSchema && itemSchema.properties) {
+                // It's an object item
+                // We can reuse extractObjectValue logic but we need to mock a definition/fieldset structure
+                // or just manually extract properties
+                const itemObj = {};
+                for (const [propKey, propDef] of Object.entries(itemSchema.properties)) {
+                    let subFieldWrapper = null;
+                    for (const child of content.children) {
+                        if (child.classList.contains('form-field') && child.dataset.fieldKey === propKey) {
+                            subFieldWrapper = child;
+                            break;
+                        }
+                    }
+
+                    if (subFieldWrapper) {
+                        const input = subFieldWrapper.querySelector('[data-config-key]');
+                        if (input) {
+                            itemObj[propKey] = this.extractFieldValue(propKey, propDef, input);
+                        }
+                    }
+                }
+                items.push(itemObj);
+            } else {
+                // It's a simple value or raw JSON
+                const input = content.querySelector('textarea, input');
+                if (input) {
+                    try {
+                        // If it's a textarea with raw JSON
+                        if (input.tagName.toLowerCase() === 'textarea') {
+                            items.push(JSON.parse(input.value));
+                        } else {
+                            // TODO: Handle simple array types (strings, numbers) if needed
+                            // For now our schema mainly uses object arrays or raw JSON
+                            items.push(input.value);
+                        }
+                    } catch (e) {
+                        console.warn("Invalid array item JSON", e);
+                    }
+                }
+            }
+        }
+
+        return items;
+    }
+
     toDisplayName(str) {
         return str
             .replace(/_/g, ' ')

@@ -39,100 +39,35 @@
         <!-- EDITOR TAB -->
         <div id="tab-editor" class="tab-content">
             <div class="scroll-content">
+                <!-- Metadata always visible -->
                 <div class="control-group">
                     <label>Tree Name</label>
                     <input type="text" id="tree_name" placeholder="My Custom Tree">
                 </div>
-
                 <div class="control-group">
-                    <label>Resources</label>
-                    <input type="text" id="resource_pack" value="minecraft-assets-1.21.10">
+                    <label>Description</label>
+                    <input type="text" id="tree_description" placeholder="Tree description...">
                 </div>
 
-                <div class="control-group">
-                    <label>Block Definitions</label>
-                    <div style="display: flex; gap: 5px; flex-direction: column;">
-                        <input type="text" id="trunk_block" value="minecraft:oak_log">
-                        <input type="text" id="foliage_block" value="minecraft:oak_leaves">
+                <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
+
+                <!-- Tab switcher -->
+                <div class="config-mode-tabs">
+                    <button class="config-tab active" data-mode="form" onclick="switchConfigMode('form')">Form
+                        View</button>
+                    <button class="config-tab" data-mode="json" onclick="switchConfigMode('json')">JSON Editor</button>
+                </div>
+
+                <!-- Form View (dynamic) -->
+                <div id="config-form-view" class="config-view active">
+                    <div id="dynamic-form-container">
+                        <!-- Populated by schema-form.js -->
                     </div>
                 </div>
 
-                <div class="control-group">
-                    <label>Biome (Tint)</label>
-                    <select id="biome_select">
-                        <option value="plains">Plains (Default)</option>
-                        <option value="forest">Forest</option>
-                        <option value="birch_forest">Birch Forest</option>
-                        <option value="jungle">Jungle</option>
-                        <option value="sparse_jungle">Sparse Jungle</option>
-                        <option value="swamp">Swamp</option>
-                        <option value="mangrove">Mangrove Swamp</option>
-                        <option value="desert">Desert / Savanna</option>
-                        <option value="badlands">Badlands</option>
-                        <option value="snowy">Snowy Plains / Cold</option>
-                        <option value="taiga">Taiga</option>
-                        <option value="meadow">Meadow</option>
-                        <option value="mushroom">Mushroom Fields</option>
-                        <option value="pale_garden">Pale Garden</option>
-                        <option value="cherry">Cherry Grove</option>
-                    </select>
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
-
-                <div class="control-group">
-                    <label>Trunk Placer</label>
-                    <select id="trunk_placer_type">
-                        <option value="straight">Straight</option>
-                        <option value="forking">Forking (Fancy Oak)</option>
-                        <option value="giant">Giant (2x2 Trunk)</option>
-                        <option value="mega_jungle">Mega Jungle</option>
-                        <option value="dark_oak">Dark Oak</option>
-                        <option value="cherry">Cherry</option>
-                        <option value="upwards_branching">Upwards Branching (Pale Oak)</option>
-                    </select>
-                </div>
-
-                <div class="control-group">
-                    <label>Foliage Placer</label>
-                    <select id="foliage_placer_type">
-                        <option value="blob">Blob (Oak/Birch)</option>
-                        <option value="spruce">Spruce</option>
-                        <option value="pine">Pine</option>
-                        <option value="jungle">Jungle</option>
-                        <option value="acacia">Acacia</option>
-                        <option value="dark_oak">Dark Oak</option>
-                        <option value="mega_pine">Mega Pine</option>
-                        <option value="random_spread">Random Spread (Cherry/Azalea)</option>
-                        <option value="cherry">Cherry</option>
-                    </select>
-                </div>
-
-                <div class="control-group">
-                    <label>Foliage Height <span class="value-display" id="foliage_height_val">3</span></label>
-                    <input type="range" id="foliage_height" min="1" max="8" value="3">
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
-
-                <div class="control-group">
-                    <label>Min Height <span class="value-display" id="height_min_val">4</span></label>
-                    <input type="range" id="trunk_height_min" min="1" max="15" value="4">
-                </div>
-
-                <div class="control-group">
-                    <label>Max Height <span class="value-display" id="height_max_val">7</span></label>
-                    <input type="range" id="trunk_height_max" min="1" max="15" value="7">
-                </div>
-
-                <div class="control-group">
-                    <label>Radius <span class="value-display" id="radius_val">2</span></label>
-                    <input type="range" id="foliage_radius" min="1" max="6" value="2">
-                </div>
-
-                <div class="control-group">
-                    <label>Offset Y <span class="value-display" id="offset_val">0</span></label>
-                    <input type="range" id="foliage_offset" min="0" max="5" value="0">
+                <!-- JSON View -->
+                <div id="config-json-view" class="config-view" style="display: none;">
+                    <textarea id="json-editor" rows="20" spellcheck="false"></textarea>
                 </div>
             </div>
         </div>
@@ -188,6 +123,23 @@
             } else {
                 buttons[1].classList.add('active');
                 document.getElementById('action-panel').style.display = 'flex';
+            }
+        }
+
+        function switchConfigMode(mode) {
+            // Update tabs
+            document.querySelectorAll('.config-tab').forEach(el => el.classList.remove('active'));
+            document.querySelector(`.config-tab[data-mode="${mode}"]`).classList.add('active');
+
+            // Update views
+            document.querySelectorAll('.config-view').forEach(el => el.style.display = 'none');
+            document.getElementById(`config-${mode}-view`).style.display = 'block';
+
+            // Sync data if needed (handled in tree-browser.js usually, but we can trigger an event or call a global function if we want tight coupling)
+            // For now, we'll let the click handler in tree-browser.js (if we add one) or just rely on the user to save/regenerate.
+            // Ideally, tree-browser.js should attach listeners to these buttons to sync state.
+            if (window.treeBrowser) {
+                window.treeBrowser.syncConfigMode(mode);
             }
         }
 
