@@ -163,7 +163,7 @@ public class WebEditorServer {
                     }, minecraftServer);
 
                     List<BlockInfo> blocks = future.join();
-                    String jsonResponse = GSON.toJson(blocks);
+                    String jsonResponse = GSON.toJson(blocks.stream().map(BlockInfo::toJson).toList());
 
                     // Send Response
                     t.getResponseHeaders().set("Content-Type", "application/json");
@@ -188,12 +188,18 @@ public class WebEditorServer {
         }
 
         private List<BlockInfo> generateTree(TreeFeatureConfig config) {
-            PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager());
+            PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager(), minecraftServer);
 
-            ConfiguredFeature<?, ?> feature = new ConfiguredFeature<>(Feature.TREE, config);
-
-            // Generate at 0,0,0
-            feature.generate(world, null, Random.create(), new BlockPos(0, 0, 0));
+            // Use Feature.TREE directly to avoid ConfiguredFeature wrapper issues
+            // We need to cast to Feature<TreeFeatureConfig> to call generate with config
+            ((Feature<TreeFeatureConfig>) Feature.TREE).generate(new net.minecraft.world.gen.feature.util.FeatureContext<>(
+                null, // Optional<ConfiguredFeature<?, ?>>
+                world,
+                world.getChunkGenerator(), // ChunkGenerator
+                Random.create(),
+                new BlockPos(0, 0, 0),
+                config
+            ));
 
             return world.getPlacedBlocks();
         }

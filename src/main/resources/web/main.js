@@ -264,13 +264,30 @@ async function generateTree() {
 function renderScene(blocks) {
     const matrices = { 'log': [], 'leaves': [], 'dirt': [], 'beehive': [] };
     blocks.forEach(b => {
+        const blockName = b.blockState.Name;
         let type = 'leaves'; // default
-        if (b.block.includes('log') || b.block.includes('wood')) type = 'log';
-        else if (b.block.includes('dirt')) type = 'dirt';
-        else if (b.block.includes('beehive') || b.block.includes('bee_nest')) type = 'beehive';
-        else if (!b.block.includes('leaves')) type = 'leaves'; // if not leaves, but wait
+        if (blockName.includes('log') || blockName.includes('wood')) type = 'log';
+        else if (blockName.includes('dirt')) type = 'dirt';
+        else if (blockName.includes('beehive') || blockName.includes('bee_nest')) type = 'beehive';
+        else if (!blockName.includes('leaves')) type = 'leaves'; // if not leaves, but wait
 
-        const matrix = BABYLON.Matrix.Translation(b.x, b.y + 0.5, b.z);
+        // Handle log rotations based on axis property
+        let rotationMatrix = BABYLON.Matrix.Identity();
+        if (type === 'log' && b.blockState.Properties && b.blockState.Properties.axis) {
+            const axis = b.blockState.Properties.axis;
+            if (axis === 'x') {
+                // Horizontal along X axis - rotate around Z axis
+                rotationMatrix = BABYLON.Matrix.RotationZ(Math.PI / 2);
+            } else if (axis === 'z') {
+                // Horizontal along Z axis - rotate around X axis
+                rotationMatrix = BABYLON.Matrix.RotationX(Math.PI / 2);
+            }
+            // axis 'y' is default (vertical), no rotation needed
+        }
+
+        // Apply rotation first, then translation
+        let matrix = rotationMatrix.multiply(BABYLON.Matrix.Translation(b.x, b.y + 0.5, b.z));
+
         matrices[type].push(matrix);
     });
 
