@@ -8,17 +8,17 @@ https://github.com/user-attachments/assets/fef560ee-a708-45df-a56d-d9fe799a13fd
 
 ### 🌳 Web-Based Tree Editor
 - **Real-time 3D Preview** - Babylon.js renderer with Minecraft-accurate lighting and shadows
-- **Dynamic Form Builder** - Schema-driven UI that adapts to Minecraft's tree configuration format
-- **Dual Edit Modes** - Switch between visual form editor and raw JSON editing
-- **Live Updates** - Changes instantly reflected in the 3D preview
+- **Monaco Editor** - Professional JSON editor with syntax highlighting and auto-completion
+- **Auto-Regeneration** - Live preview updates 500ms after you stop typing
+- **Overlay Design** - Monaco editor slides up from bottom, keeping the 3D view visible
 - **Biome Tinting** - Accurate leaf colors for all 15+ Minecraft biomes
 - **Resource Pack Support** - Load textures from any Minecraft resource pack
 
 ### 📚 Tree Library Management
-- **Tree Browser** - Visual library of all custom trees with search
-- **Import Vanilla Trees** - One-click import from Minecraft's built-in trees
-- **CRUD Operations** - Create, edit, duplicate, and delete trees via web UI
-- **Metadata System** - Name, description, and tags for organization
+- **Tree Browser** - Visual library of all custom trees with search and filtering
+- **Import Vanilla Trees** - One-click import from Minecraft's built-in trees (or modded trees)
+- **CRUD Operations** - Create, edit, save, and delete trees via web UI
+- **Settings Panel** - Clean interface for tree metadata (name, description, biome preview)
 - **Hot Reload** - `/tree_engine reload` command for rapid iteration
 
 ### 🎨 Accurate Rendering
@@ -28,34 +28,9 @@ https://github.com/user-attachments/assets/fef560ee-a708-45df-a56d-d9fe799a13fd
 - **Thin Instancing** - Performant rendering of large trees (1000+ blocks)
 - **Minecraft-style Lighting** - Hemispheric + directional lights + SSAO
 
-### Planned Features
-See [EDITOR_ROADMAP.md](EDITOR_ROADMAP.md) for upcoming features:
-- Advanced trunk/foliage placer support
-- Visual block editing tools
-- Parent/child tree hierarchies
-- Datapack export functionality
-
 ## Installation
 
 1. Download the latest release
-2. Place in your `mods` folder
-3. Launch Minecraft with Fabric
-4. Access the editor at `http://localhost:3000`
-
-## Usage
-
-### Basic Tree Creation
-1. Start Minecraft with the mod installed
-2. Open `http://localhost:3000` in your browser
-3. Adjust tree parameters in the sidebar
-4. Click "Generate" to preview
-5. Trees are saved to `config/tree_engine/trees/`
-
-### Commands
-- `/tree_engine reload` - Reload web server and configs
-
-### Configuration
-- **Trees**: `config/tree_engine/trees/*.json`
 - **Web Files**: `config/tree_engine/web/index.html`
 - **Textures**: `config/tree_engine/textures/`
 
@@ -100,6 +75,25 @@ See [EDITOR_ROADMAP.md](EDITOR_ROADMAP.md) for planned features and implementati
 ## License
 
 This project is licensed under the CC0 1.0 License - see the [LICENSE](LICENSE) file for details.
+
+## Future Improvements
+
+The editor is production-ready for manual JSON editing with live preview. Planned enhancements include:
+
+### UI Improvements
+- **Placer Selectors** - Dropdown menus for trunk/foliage placer types instead of manual JSON editing
+- **Decorator Management** - Visual interface to add/remove decorators (vines, beehives, cocoa, etc.)
+- **Validation Panel** - Real-time warnings for invalid configurations or biome-specific issues
+- **Statistics Display** - Show block counts, tree dimensions, and complexity metrics
+
+### Advanced Features
+- **Visual Block Editing** - Click-to-place blocks directly in the 3D view
+- **Tree Hierarchy** - Parent/child relationships for tree variants and inheritance
+- **Datapack Export** - Generate vanilla-compatible datapack files
+- **Preset Library** - Pre-built templates for common tree types
+- **Multi-tree Preview** - Generate and compare multiple variations side-by-side
+
+See [EDITOR_ROADMAP.md](EDITOR_ROADMAP.md) for detailed implementation plans.
 
 ## Credits
 
