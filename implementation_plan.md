@@ -1,50 +1,65 @@
-# Tree Engine Implementation Plan - Phase 1
+Dynamic Datapack Registration Implementation Plan
+Goal
+Register tree JSON files as real Minecraft datapacks so they can be used with /place feature tree_engine:<name> and generate 1:1 accurately in both preview and in-game.
 
-## Phase 1: Core Functionality & Data Management
+Current Issues
+❌ Custom /tree_engine place command that doesn't use Minecraft's feature system
+❌ Web editor sends only tree config, not full feature JSON
+❌ Backend generates with Feature.TREE only, ignoring wrappers like random_patch
+❌ No dynamic registry registration for features
+Proposed Changes
+1. Dynamic Feature Registration
+File: src/main/java/savage/tree_engine/registry/FeatureRegistry.java [NEW]
 
-### Phase 1.1: Backend Tree CRUD System
-- [x] **Update TreeDefinition**: Add `id`, `name`, `description` fields.
-- [x] **Enhance TreeConfigManager**: Add `saveTree`, `deleteTree`, `listTrees` methods.
-- [x] **Create API Endpoints**:
-    - `GET /api/trees` (List)
-    - `POST /api/trees` (Save/Update)
-    - `DELETE /api/trees/{id}` (Delete)
-- [x] **Register Handlers**: Hook up new endpoints in `WebEditorServer`.
+Load all JSON files from config/tree_engine/datapacks/your_pack/data/tree_engine/worldgen/configured_feature/
+Parse each using ConfiguredFeature.CODEC with RegistryOps
+Register into Minecraft's RegistryKeys.CONFIGURED_FEATURE registry
+Use Identifier like tree_engine:live_oak
+Register on SERVER_STARTING event (before world load)
+2. Remove Custom Place Command
+File: src/main/java/savage/tree_engine/command/TreeEngineCommand.java
 
-### Phase 1.2: Frontend Tree Library
-- [x] **Create Tree Browser UI**:
-    - Add a sidebar tab for "Tree Library".
-    - Implement a list view of available trees.
-    - Add a search/filter bar.
-- [x] **Connect to API**:
-    - Fetch tree list on load.
-    - Load selected tree into the editor form.
-    - Implement "Save" button (POST to API).
-    - Implement "Delete" button (DELETE to API).
-- [x] **UI Refinements**:
-    - Replace icon buttons with text buttons.
-    - Add "Create New" workflow.
-    - Contextual Save (Name field in editor).
-    - Contextual Actions (Hide in Library, Disable Delete for new trees).
-    - Auto-Regeneration (Sliders, Enter key, Biome select).
+Remove placeTree() method and command registration
+Keep only /tree_engine reload command
+Users will use vanilla /place feature tree_engine:<name>
+3. Update Web Editor - Frontend
+File: src/main/resources/web/main.js
 
-### Phase 1.3: Vanilla Tree Import
-- [x] **Create Import API**:
-    - `GET /api/vanilla_trees` (List available vanilla trees).
-    - `POST /api/import_vanilla` (Import a vanilla tree as a custom config).
-- [x] **Frontend Import UI**:
-    - Add "Import Vanilla" button in Library.
-    - Show modal/list of vanilla trees.
-    - On selection, create a new tree config populated with vanilla settings.
+Change generateTree() to send full feature JSON (not just config)
+Include the type field and all wrappers
+Send the complete JSON structure from the file
+4. Update Web Editor - Backend
+File: src/main/java/savage/tree_engine/web/WebEditorServer.java
 
-### Phase 1.4: Advanced Generators
-- [x] **Expand TreeDefinition**:
-    - Add support for different `trunk_placer_type` (Straight, Forking, Mega, etc.).
-    - Add support for different `foliage_placer_type` (Blob, Spruce, Pine, Jungle, etc.).
-    - Add parameters for each placer type.
-- [x] **Update Generator Logic**:
-    - Refactor `WebEditorServer.generateTree` to use the configured placers.
-    - Note: Currently uses foliage_height parameter; full placer type switching can be added incrementally.
-- [x] **Update Frontend UI**:
-    - Add dropdowns for Placer Types.
-    - Add dynamic property fields based on selected placer.
+Update GenerateHandler to parse full ConfiguredFeature (not just TreeFeatureConfig)
+Use RegistryOps for parsing
+Call configuredFeature.generate() instead of Feature.TREE.generate()
+This will handle random_patch, selectors, everything
+5. Update Tree API Handler
+File: src/main/java/savage/tree_engine/web/TreeApiHandler.java
+
+Update to serve full feature JSON (not just config)
+Include type field in responses
+Verification Plan
+Test Cases
+Simple tree (minecraft:tree) - Should work as before
+Random selector (simple_random_selector → tree) - Should pick first tree
+Random patch (random_patch tries:80 → tree) - Should generate 80 trees in preview AND in-game
+Nested wrappers (selector → patch → selector → tree) - Should work fully
+Commands to Test
+/place feature tree_engine:live_oak
+/place feature tree_engine:forest_pine
+Expected Results
+Preview shows same structure as in-game (80 trees for live_oak)
+/place command works with vanilla syntax
+All valid datapack JSON works 1:1
+Implementation Order
+Create FeatureRegistry.java with dynamic registration
+Remove /tree_engine place command
+Update backend GenerateHandler to use full ConfiguredFeature
+Update frontend to send full JSON
+Test with simple trees first, then complex ones
+Update TreeApiHandler to serve full JSON
+Breaking Changes
+⚠️ /tree_engine place <name> command removed
+✅ Use /place feature tree_engine:<name> instead

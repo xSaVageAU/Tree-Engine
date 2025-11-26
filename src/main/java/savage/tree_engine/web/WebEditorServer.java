@@ -149,17 +149,19 @@ public class WebEditorServer {
         public void handle(HttpExchange t) throws IOException {
             if ("POST".equals(t.getRequestMethod())) {
                 try {
-                    // Parse Request - raw Minecraft JSON config
+                    // Parse Request - raw Minecraft JSON config (full feature)
                     InputStreamReader reader = new InputStreamReader(t.getRequestBody(), StandardCharsets.UTF_8);
                     com.google.gson.JsonElement json = com.google.gson.JsonParser.parseReader(reader);
 
-                    // Parse using JsonOps
-                    com.mojang.serialization.DataResult<TreeFeatureConfig> result = TreeFeatureConfig.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE, json);
-                    TreeFeatureConfig config = result.getOrThrow(s -> new RuntimeException("Failed to parse tree config: " + s));
+                    // Parse using RegistryOps to handle full ConfiguredFeature
+                    net.minecraft.registry.RegistryOps<com.google.gson.JsonElement> ops = net.minecraft.registry.RegistryOps.of(com.mojang.serialization.JsonOps.INSTANCE, minecraftServer.getRegistryManager());
+                    com.mojang.serialization.DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, json);
+                    
+                    ConfiguredFeature<?, ?> feature = result.getOrThrow(s -> new RuntimeException("Failed to parse feature: " + s));
 
                     // Schedule generation on main thread
                     CompletableFuture<List<BlockInfo>> future = CompletableFuture.supplyAsync(() -> {
-                        return generateTree(config);
+                        return generateTree(feature);
                     }, minecraftServer);
 
                     List<BlockInfo> blocks = future.join();
@@ -187,19 +189,12 @@ public class WebEditorServer {
             }
         }
 
-        private List<BlockInfo> generateTree(TreeFeatureConfig config) {
+        private List<BlockInfo> generateTree(ConfiguredFeature<?, ?> feature) {
             PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager(), minecraftServer);
 
-            // Use Feature.TREE directly to avoid ConfiguredFeature wrapper issues
-            // We need to cast to Feature<TreeFeatureConfig> to call generate with config
-            ((Feature<TreeFeatureConfig>) Feature.TREE).generate(new net.minecraft.world.gen.feature.util.FeatureContext<>(
-                null, // Optional<ConfiguredFeature<?, ?>>
-                world,
-                world.getChunkGenerator(), // ChunkGenerator
-                Random.create(),
-                new BlockPos(0, 0, 0),
-                config
-            ));
+            // Generate the feature directly
+            // This handles all wrappers (random_patch, selectors, etc.) automatically
+            feature.generate(world, world.getChunkGenerator(), Random.create(), new BlockPos(0, 0, 0));
 
             return world.getPlacedBlocks();
         }

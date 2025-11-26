@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 
 public class TreeApiHandler implements HttpHandler {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path DATAPACK_DIR = Paths.get("config", "tree_engine", "datapacks", "your_pack", "data", "tree_engine", "worldgen", "configured_feature");
+    private static final Path DATAPACK_DIR = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees", "data", "tree_engine", "worldgen", "configured_feature");
     private final MinecraftServer minecraftServer;
 
     public TreeApiHandler(MinecraftServer server) {
@@ -161,16 +161,19 @@ public class TreeApiHandler implements HttpHandler {
                 sendError(exchange, 404, "Tree not found");
                 return;
             }
-            TreeFeatureConfig config = TreeConfigManager.loadTree(file);
-            DataResult<JsonElement> result = TreeFeatureConfig.CODEC.encodeStart(JsonOps.INSTANCE, config);
-            JsonElement configJson = result.getOrThrow(s -> new RuntimeException("Failed to encode tree config: " + s));
+            
+            // Read raw JSON file to preserve full structure (wrappers, etc.)
+            String jsonContent = Files.readString(file, StandardCharsets.UTF_8);
+            
+            // Validate it's valid JSON
+            try {
+                JsonParser.parseString(jsonContent);
+            } catch (Exception e) {
+                sendError(exchange, 500, "Corrupted JSON file");
+                return;
+            }
 
-            // Wrap in full configured feature format (without id, since it's the filename)
-            JsonObject full = new JsonObject();
-            full.addProperty("type", "minecraft:tree");
-            full.add("config", configJson);
-
-            sendResponse(exchange, 200, full.toString());
+            sendResponse(exchange, 200, jsonContent);
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to get tree: " + id, e);
             sendError(exchange, 500, "Failed to get tree");
@@ -180,11 +183,14 @@ public class TreeApiHandler implements HttpHandler {
     private void handleSave(HttpExchange exchange) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
             JsonElement json = JsonParser.parseReader(reader);
-            JsonObject obj = json.getAsJsonObject();
-            JsonElement configJson = obj.get("config");
-
-            DataResult<TreeFeatureConfig> result = TreeFeatureConfig.CODEC.parse(JsonOps.INSTANCE, configJson);
-            TreeFeatureConfig config = result.getOrThrow(s -> new RuntimeException("Failed to parse tree config: " + s));
+            
+            // Validate that it's a valid ConfiguredFeature (optional but good practice)
+            // We can use the codec to check, but for now let's just ensure it's valid JSON
+            // and has a "type" field
+            if (!json.isJsonObject() || !json.getAsJsonObject().has("type")) {
+                sendError(exchange, 400, "Invalid feature JSON: missing 'type' field");
+                return;
+            }
 
             String id = exchange.getRequestURI().getPath().split("/")[3]; // from /api/trees/{id}
             if (id == null || id.isEmpty()) {
@@ -194,16 +200,9 @@ public class TreeApiHandler implements HttpHandler {
             Path file = DATAPACK_DIR.resolve(id + ".json");
             Files.createDirectories(DATAPACK_DIR);
 
-            // Create full configured feature JSON
-            JsonObject fullJson = new JsonObject();
-            fullJson.addProperty("type", "minecraft:tree");
-            DataResult<JsonElement> configResult = TreeFeatureConfig.CODEC.encodeStart(JsonOps.INSTANCE, config);
-            JsonElement encodedConfigJson = configResult.getOrThrow(s -> new RuntimeException("Failed to encode tree config: " + s));
-            fullJson.add("config", encodedConfigJson);
-
             // Write the full JSON to file
             try (java.io.FileWriter writer = new java.io.FileWriter(file.toFile())) {
-                GSON.toJson(fullJson, writer);
+                GSON.toJson(json, writer);
             }
 
             sendResponse(exchange, 200, "{\"id\": \"" + id + "\"}");

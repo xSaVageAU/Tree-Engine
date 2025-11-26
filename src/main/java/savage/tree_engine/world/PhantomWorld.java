@@ -81,7 +81,17 @@ public class PhantomWorld implements StructureWorldAccess {
         if (state != null) {
             return state;
         }
-        // Return air by default so trees can grow
+        
+        // Simulate a ground layer for tree placement validation
+        // Many trees check for valid soil blocks (dirt, grass, podzol, etc.)
+        // Trees spawn at y=0, so they check y=-1 for soil
+        if (pos.getY() == -1) {
+            return Blocks.GRASS_BLOCK.getDefaultState();
+        } else if (pos.getY() < -1) {
+            return Blocks.DIRT.getDefaultState();
+        }
+        
+        // Return air above ground
         return Blocks.AIR.getDefaultState();
     }
 

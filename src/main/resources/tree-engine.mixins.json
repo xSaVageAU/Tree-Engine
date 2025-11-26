@@ -3,7 +3,8 @@
 	"package": "savage.tree_engine.mixin",
 	"compatibilityLevel": "JAVA_21",
 	"mixins": [
-		"ExampleMixin"
+		"ExampleMixin",
+		"ResourcePackManagerMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
