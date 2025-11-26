@@ -191,14 +191,6 @@ async function generateTree() {
         // Filter out air blocks
         blocks = blocks.filter(b => b.blockState.Name !== "minecraft:air");
 
-        // Deduplicate blocks at same position (keep last one to match Minecraft behavior)
-        const blockMap = new Map();
-        blocks.forEach(b => {
-            const key = `${b.x},${b.y},${b.z}`;
-            blockMap.set(key, b);
-        });
-        blocks = Array.from(blockMap.values());
-
         renderScene(blocks);
         if (status) status.textContent = `Generated ${blocks.length} blocks.`;
     } catch (error) {

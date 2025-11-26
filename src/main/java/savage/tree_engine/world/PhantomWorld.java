@@ -69,8 +69,47 @@ public class PhantomWorld implements StructureWorldAccess {
 
     @Override
     public boolean setBlockState(BlockPos pos, BlockState state, int flags, int maxUpdateDepth) {
-        blockStates.put(pos, state);
-        placedBlocks.add(new BlockInfo(pos.getX(), pos.getY(), pos.getZ(), state));
+        // CRITICAL: Create an immutable copy of the position
+        // Tree generators often use BlockPos.Mutable and modify it after calling setBlockState
+        // If we store the mutable pos in the map, the map key gets corrupted!
+        BlockPos immutablePos = pos.toImmutable();
+        
+        // Check if there's already a block at this position
+        BlockState existing = blockStates.get(immutablePos);
+        
+        // If there's an existing non-air block, check if it can be replaced by tree generation
+        if (existing != null && !existing.isAir()) {
+            // Tree generation uses TreeFeature.canTreeReplace() which allows:
+            // - Air (obviously)
+            // - Leaves (all types)
+            // - Vines
+            // - Moss
+            // - Grass, tall grass, ferns
+            // - Saplings
+            // - Water, lava
+            // But NOT logs, wood, dirt, stone, etc.
+            
+            Block existingBlock = existing.getBlock();
+            String blockId = existingBlock.getRegistryEntry().getKey().get().getValue().toString();
+            
+            // Check if it's tree-replaceable
+            boolean canReplace = existing.isReplaceable() || // Grass, flowers, etc.
+                                blockId.contains("leaves") ||
+                                blockId.contains("vine") ||
+                                blockId.contains("moss") ||
+                                blockId.contains("grass") ||
+                                blockId.contains("fern") ||
+                                blockId.contains("sapling");
+            
+            if (!canReplace) {
+                // Block cannot be replaced by tree generation
+                return false;
+            }
+        }
+        
+        // Valid placement - update the world state
+        blockStates.put(immutablePos, state);
+        placedBlocks.add(new BlockInfo(immutablePos.getX(), immutablePos.getY(), immutablePos.getZ(), state));
         return true;
     }
 
