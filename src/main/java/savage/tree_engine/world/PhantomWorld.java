@@ -64,7 +64,15 @@ public class PhantomWorld implements StructureWorldAccess {
     }
 
     public List<BlockInfo> getPlacedBlocks() {
-        return placedBlocks;
+        // Return unique blocks from the map to avoid z-fighting
+        // The map always contains the latest block at each position
+        List<BlockInfo> uniqueBlocks = new ArrayList<>();
+        for (Map.Entry<BlockPos, BlockState> entry : blockStates.entrySet()) {
+            BlockPos pos = entry.getKey();
+            BlockState state = entry.getValue();
+            uniqueBlocks.add(new BlockInfo(pos.getX(), pos.getY(), pos.getZ(), state));
+        }
+        return uniqueBlocks;
     }
 
     @Override
