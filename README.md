@@ -2,7 +2,6 @@
 
 A Minecraft Fabric mod that provides a powerful web-based editor for creating, modifying, and managing custom tree generators with real-time 3D preview.
 
-https://github.com/user-attachments/assets/fef560ee-a708-45df-a56d-d9fe799a13fd
 
 ## Features
 
@@ -54,8 +53,6 @@ src/main/resources/web/
 └── index.html       # Web editor (exported to config on startup)
 ```
 
-### Contributing
-See [EDITOR_ROADMAP.md](EDITOR_ROADMAP.md) for planned features and implementation details.
 
 ## Technical Details
 
@@ -93,7 +90,6 @@ The editor is production-ready for manual JSON editing with live preview. Planne
 - **Preset Library** - Pre-built templates for common tree types
 - **Multi-tree Preview** - Generate and compare multiple variations side-by-side
 
-See [EDITOR_ROADMAP.md](EDITOR_ROADMAP.md) for detailed implementation plans.
 
 ## Credits
 
