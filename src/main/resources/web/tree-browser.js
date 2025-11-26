@@ -358,7 +358,7 @@ class TreeBrowser {
             manualSection.style.gap = '10px';
 
             manualSection.innerHTML = `
-                <input type="text" id="manual-import-input" placeholder="Enter ID (e.g. wythers:oak)" style="flex: 3; min-width: 200px; padding: 5px; background: #252526; border: 1px solid #3c3c3c; color: #ccc;">
+                <input type="text" id="manual-import-input" placeholder="Enter ID (e.g. tree_engine:oak)" style="flex: 3; min-width: 200px; padding: 5px; background: #252526; border: 1px solid #3c3c3c; color: #ccc;">
                 <button id="btn-manual-import" style="flex: 1; padding: 5px 5px; background: #0e639c; color: white; border: none; cursor: pointer;">Lookup</button>
             `;
 
