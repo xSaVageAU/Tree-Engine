@@ -71,8 +71,16 @@ public class TreeApiHandler implements HttpHandler {
                     else sendError(exchange, 405, "Method not allowed");
                 } else if ("vanilla_tree".equals(endpoint)) {
                     // GET /api/vanilla_tree/{id} - fetch raw JSON from Minecraft registry
-                    if (parts.length == 4 && "GET".equals(method)) {
-                        handleGetVanillaTree(exchange, parts[3]);
+                    // ID might contain slashes (e.g. wythers:biomes/forest/oak), so we can't just use parts[3]
+                    if ("GET".equals(method)) {
+                        String requestPath = exchange.getRequestURI().getPath();
+                        String prefix = "/api/vanilla_tree/";
+                        if (requestPath.startsWith(prefix)) {
+                            String id = requestPath.substring(prefix.length());
+                            handleGetVanillaTree(exchange, id);
+                        } else {
+                            sendError(exchange, 400, "Invalid ID");
+                        }
                     } else {
                         sendError(exchange, 405, "Method not allowed");
                     }
@@ -89,9 +97,43 @@ public class TreeApiHandler implements HttpHandler {
     }
 
     private void handleListVanilla(HttpExchange exchange) throws IOException {
-        List<String> trees = List.of("oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "azalea", "mangrove");
-        String json = GSON.toJson(trees);
-        sendResponse(exchange, 200, json);
+        try {
+            var registryOpt = minecraftServer.getRegistryManager().getOptional(net.minecraft.registry.RegistryKeys.CONFIGURED_FEATURE);
+            if (registryOpt.isEmpty()) {
+                sendError(exchange, 500, "Registry not available");
+                return;
+            }
+
+            net.minecraft.registry.Registry<ConfiguredFeature<?, ?>> registry = registryOpt.get();
+            List<String> treeIds = new ArrayList<>();
+
+            for (var entry : registry.getEntrySet()) {
+                Identifier id = entry.getKey().getValue();
+                
+                // Filter for vanilla trees only as requested
+                if (!id.getNamespace().equals("minecraft")) {
+                    continue;
+                }
+
+                ConfiguredFeature<?, ?> feature = entry.getValue();
+                
+                // Check if it's a tree-related feature
+                // We include TreeFeature and RandomPatch (often used for trees)
+                if (feature.feature() instanceof net.minecraft.world.gen.feature.TreeFeature ||
+                    feature.feature() instanceof net.minecraft.world.gen.feature.RandomPatchFeature) {
+                    treeIds.add(id.toString());
+                }
+            }
+            
+            // Sort alphabetically
+            java.util.Collections.sort(treeIds);
+
+            String json = GSON.toJson(treeIds);
+            sendResponse(exchange, 200, json);
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to list vanilla trees", e);
+            sendError(exchange, 500, "Failed to list trees: " + e.getMessage());
+        }
     }
 
     /**
@@ -100,7 +142,11 @@ public class TreeApiHandler implements HttpHandler {
      */
     private void handleGetVanillaTree(HttpExchange exchange, String treeId) throws IOException {
         try {
-            Identifier featureId = Identifier.of("minecraft", treeId);
+            // Parse the ID (handles namespaces like "minecraft:oak")
+            // Note: If the ID contains slashes, the simple split("/") in the handler might have broken it.
+            // But since we are now restricting to vanilla (which usually doesn't have slashes in tree IDs),
+            // this is less of a risk.
+            Identifier featureId = Identifier.of(treeId);
 
             // Get the configured feature from the runtime registry
             var registryOpt = minecraftServer.getRegistryManager().getOptional(net.minecraft.registry.RegistryKeys.CONFIGURED_FEATURE);
@@ -109,31 +155,27 @@ public class TreeApiHandler implements HttpHandler {
                 return;
             }
 
-            net.minecraft.registry.Registry<net.minecraft.world.gen.feature.ConfiguredFeature<?, ?>> registry = registryOpt.get();
+            net.minecraft.registry.Registry<ConfiguredFeature<?, ?>> registry = registryOpt.get();
             ConfiguredFeature<?, ?> feature = registry.get(featureId);
 
             if (feature == null) {
-                sendError(exchange, 404, "Vanilla tree not found in registry: " + treeId);
+                sendError(exchange, 404, "Tree not found in registry: " + treeId);
                 return;
             }
 
-            // Check if it's a tree feature
-            if (!(feature.feature() instanceof net.minecraft.world.gen.feature.TreeFeature)) {
-                sendError(exchange, 400, "Feature is not a tree: " + treeId);
-                return;
-            }
+            // Encode the FULL feature (including type and wrappers)
+            // This allows us to import complex features like random_patch -> simple_random_selector -> tree
+            net.minecraft.registry.RegistryOps<JsonElement> ops = net.minecraft.registry.RegistryOps.of(JsonOps.INSTANCE, minecraftServer.getRegistryManager());
+            DataResult<JsonElement> result = ConfiguredFeature.CODEC.encodeStart(ops, feature);
+            JsonElement json = result.getOrThrow(s -> new RuntimeException("Failed to encode feature: " + s));
 
-            TreeFeatureConfig config = (TreeFeatureConfig) feature.config();
-
-            // Turn it into JSON to send to frontend
-            DataResult<JsonElement> result = TreeFeatureConfig.CODEC.encodeStart(JsonOps.INSTANCE, config);
-            JsonElement json = result.getOrThrow(s -> new RuntimeException("Failed to encode tree config: " + s));
-
+            // Wrap in a structure that matches what the frontend expects for "full JSON" import
+            // The frontend expects the raw JSON structure that would go in a file
             sendResponse(exchange, 200, json.toString());
 
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to fetch vanilla tree from registry: " + treeId, e);
-            sendError(exchange, 500, "Failed to fetch vanilla tree: " + e.getMessage());
+            TreeEngine.LOGGER.error("Failed to fetch tree from registry: " + treeId, e);
+            sendError(exchange, 500, "Failed to fetch tree: " + e.getMessage());
         }
     }
 

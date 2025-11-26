@@ -359,6 +359,33 @@ class TreeBrowser {
         const searchInput = document.getElementById('import-search');
 
         modal.style.display = 'flex';
+
+        // Add manual lookup section if not present
+        let manualSection = document.getElementById('manual-import-section');
+        if (!manualSection) {
+            manualSection = document.createElement('div');
+            manualSection.id = 'manual-import-section';
+            manualSection.style.padding = '10px';
+            manualSection.style.borderBottom = '1px solid #3c3c3c';
+            manualSection.style.marginBottom = '10px';
+            manualSection.style.display = 'flex';
+            manualSection.style.gap = '10px';
+
+            manualSection.innerHTML = `
+                <input type="text" id="manual-import-input" placeholder="Enter ID (e.g. wythers:oak)" style="flex: 1; padding: 5px; background: #252526; border: 1px solid #3c3c3c; color: #ccc;">
+                <button id="btn-manual-import" style="padding: 5px 10px; background: #0e639c; color: white; border: none; cursor: pointer;">Lookup</button>
+            `;
+
+            // Insert before the list
+            vanillaList.parentNode.insertBefore(manualSection, vanillaList);
+
+            // Bind button
+            document.getElementById('btn-manual-import').onclick = () => {
+                const id = document.getElementById('manual-import-input').value.trim();
+                if (id) this.importVanillaTree(id);
+            };
+        }
+
         vanillaList.innerHTML = '<div style="padding: 20px; text-align: center; color: #858585;">Loading...</div>';
 
         try {
@@ -389,13 +416,19 @@ class TreeBrowser {
 
         if (trees.length === 0) {
             vanillaList.innerHTML = '<div style="padding: 20px; text-align: center; color: #858585;">No trees found</div>';
-            return;
         }
 
         trees.forEach(id => {
             const el = document.createElement('div');
             el.className = 'vanilla-item';
-            el.textContent = id;
+
+            // Display clean name but store full ID
+            // "minecraft:oak" -> "oak" (but show full if modded)
+            const displayName = id.startsWith('minecraft:') ? id.split(':')[1] : id;
+
+            el.textContent = displayName;
+            el.title = id; // Tooltip shows full ID
+
             el.onclick = () => this.importVanillaTree(id);
             vanillaList.appendChild(el);
         });
@@ -405,60 +438,62 @@ class TreeBrowser {
         const modal = document.getElementById('import-modal');
         console.log("Importing tree:", id);
 
+        // Show loading state
+        const vanillaList = document.getElementById('vanilla-list');
+        const originalContent = vanillaList.innerHTML;
+        vanillaList.innerHTML = '<div style="padding: 20px; text-align: center; color: #858585;">Importing...</div>';
+
         try {
-            // Fetch the raw vanilla tree JSON from Minecraft resources
+            // Fetch the tree config from backend
+            // Backend now accepts full ID like "minecraft:oak"
             const response = await fetch(`/api/vanilla_tree/${id}`);
 
             if (response.ok) {
-                const vanillaJson = await response.json();
-                modal.style.display = 'none';
+                const treeJson = await response.json();
 
-                console.log("Vanilla config loaded", vanillaJson);
+                // Load into editor
+                window.currentTreeJson = treeJson;
 
-                // Create the full JSON for editing
-                const fullJson = {
-                    type: 'minecraft:tree',
-                    config: vanillaJson.config || vanillaJson  // If already wrapped, use config
-                };
+                // Set name to the imported ID (cleaned up)
+                const name = id.split(':')[1] || id;
+                document.getElementById('tree_name').value = name;
 
-                this.selectedTreeId = null; // It's a new tree until saved
-
-                const nameInput = document.getElementById('tree_name');
                 const descInput = document.getElementById('tree_description');
-
-                if (nameInput) nameInput.value = id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                if (descInput) descInput.value = `Imported from vanilla minecraft:${id}`;
-
-                // Store the full JSON for editing
-                window.currentTreeJson = fullJson;
+                if (descInput) descInput.value = `Imported from ${id}`;
 
                 // Build dynamic form
-                console.log("Building editor form...");
-                this.buildEditorForm(fullJson.config);
+                this.buildEditorForm(treeJson.config || {});
 
-                const jsonEditor = document.getElementById('json-editor');
-                if (jsonEditor) jsonEditor.value = JSON.stringify(fullJson, null, 2);
+                // Update JSON editor
+                document.getElementById('json-editor').value = JSON.stringify(treeJson, null, 2);
 
+                this.selectedTreeId = null; // It's a new unsaved tree
                 this.updateDeleteButtonState();
 
                 // Switch to editor
                 switchTab('editor');
 
-                console.log("Generating tree...");
-                await generateTree();
+                // Close modal
+                modal.style.display = 'none';
+
+                // Trigger generation
+                if (typeof generateTree === 'function') {
+                    generateTree();
+                }
+
                 console.log("Import complete.");
             } else {
                 alert(`Failed to import tree: ${await response.text()}`);
+                vanillaList.innerHTML = originalContent; // Restore list on error
             }
         } catch (e) {
             console.error('Error importing vanilla tree:', e);
             alert('Error importing tree: ' + e.message);
+            vanillaList.innerHTML = originalContent; // Restore list on error
         }
     }
 }
 
-// Initialize
-let treeBrowser;
 window.addEventListener('DOMContentLoaded', () => {
     treeBrowser = new TreeBrowser();
     window.treeBrowser = treeBrowser; // Expose to global scope for index.html calls
