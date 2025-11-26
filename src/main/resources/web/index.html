@@ -18,13 +18,8 @@
             <h1>Tree Engine</h1>
         </div>
 
-        <div class="tabs">
-            <button class="tab active" onclick="switchTab('library')">Library</button>
-            <button class="tab" onclick="switchTab('editor')">Editor</button>
-        </div>
-
-        <!-- LIBRARY TAB -->
-        <div id="tab-library" class="tab-content active" style="padding: 0;">
+        <!-- TREE LIBRARY SECTION -->
+        <div id="library-section" class="library-section">
             <div style="padding: 15px 15px 0 15px;">
                 <button id="btn-create-new" style="width: 100%; margin-bottom: 5px;">+ Create New Tree</button>
                 <button id="btn-import" class="secondary" style="width: 100%; margin-bottom: 10px;">Import Vanilla
@@ -36,10 +31,14 @@
             </div>
         </div>
 
-        <!-- EDITOR TAB -->
-        <div id="tab-editor" class="tab-content">
+        <!-- SETTINGS PANEL (replaces library when tree selected) -->
+        <div id="settings-panel" class="settings-panel" style="display: none;">
+            <div class="settings-header">
+                <button id="btn-back-to-library" class="back-btn" title="Back to Library">← Back</button>
+                <h2>Tree Settings</h2>
+            </div>
             <div class="scroll-content">
-                <!-- Metadata always visible -->
+                <!-- Metadata -->
                 <div class="control-group">
                     <label>Tree Name</label>
                     <input type="text" id="tree_name" placeholder="My Custom Tree">
@@ -80,32 +79,16 @@
 
                 <hr style="border: 0; border-top: 1px solid #333; margin: 20px 0;">
 
-                <!-- Tab switcher -->
-                <div class="config-mode-tabs">
-                    <button class="config-tab active" data-mode="form" onclick="switchConfigMode('form')">Form
-                        View</button>
-                    <button class="config-tab" data-mode="json" onclick="switchConfigMode('json')">JSON Editor</button>
-                </div>
-
-                <!-- Form View (dynamic) -->
-                <div id="config-form-view" class="config-view active">
-                    <div id="dynamic-form-container">
-                        <!-- Populated by schema-form.js -->
-                    </div>
-                </div>
-
-                <!-- JSON View -->
-                <div id="config-json-view" class="config-view" style="display: none;">
-                    <textarea id="json-editor" rows="20" spellcheck="false"></textarea>
-                </div>
+                <!-- Edit JSON Button -->
+                <button id="btn-edit-json" class="secondary" style="width: 100%;">📝 Edit JSON</button>
             </div>
-        </div>
 
-        <div id="action-panel" class="actions" style="flex-direction: column; gap: 10px;">
-            <button id="btn_generate" onclick="generateTree()">Regenerate Preview</button>
-            <div style="display: flex; gap: 10px;">
-                <button id="btn-save" style="flex: 1;">Save Tree</button>
-                <button id="btn-delete" class="secondary" style="flex: 1;">Delete</button>
+            <div id="action-panel" class="actions" style="flex-direction: column; gap: 10px;">
+                <button id="btn_generate" onclick="generateTree()">Regenerate Preview</button>
+                <div style="display: flex; gap: 10px;">
+                    <button id="btn-save" style="flex: 1;">Save Tree</button>
+                    <button id="btn-delete" class="secondary" style="flex: 1;">Delete</button>
+                </div>
             </div>
         </div>
     </div>
@@ -121,60 +104,32 @@
         </div>
     </div>
 
-    <div class="canvas-wrapper">
-        <canvas id="renderCanvas"></canvas>
+    <div class="main-content">
+        <div class="canvas-wrapper">
+            <canvas id="renderCanvas"></canvas>
 
-        <div class="overlay-controls">
-            <button class="icon-btn" id="btn_rotate" title="Auto Rotate">↻</button>
-            <button class="icon-btn" id="btn_reset_camera" title="Reset Camera">⟲</button>
+            <div class="overlay-controls">
+                <button class="icon-btn" id="btn_rotate" title="Auto Rotate">↻</button>
+                <button class="icon-btn" id="btn_reset_camera" title="Reset Camera">⟲</button>
+            </div>
+
+            <div id="status">Ready</div>
         </div>
-
-        <div id="status">Ready</div>
     </div>
 
+    <!-- BOTTOM MONACO EDITOR PANEL (overlays canvas) -->
+    <div id="bottom-panel" class="bottom-panel">
+        <div class="panel-header">
+            <h3>JSON Editor</h3>
+            <button id="btn-close-editor" class="close-btn">✕</button>
+        </div>
+        <div id="monaco-container" class="monaco-container"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
     <script src="main.js"></script>
     <script src="schema-form.js"></script>
     <script src="tree-browser.js"></script>
-    <script>
-        function switchTab(tabName) {
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-
-            // Show selected
-            document.getElementById('tab-' + tabName).classList.add('active');
-
-            // Highlight button (simple logic for 2 tabs)
-            const buttons = document.querySelectorAll('.tab');
-            if (tabName === 'library') {
-                buttons[0].classList.add('active');
-                document.getElementById('action-panel').style.display = 'none';
-            } else {
-                buttons[1].classList.add('active');
-                document.getElementById('action-panel').style.display = 'flex';
-            }
-        }
-
-        function switchConfigMode(mode) {
-            // Update tabs
-            document.querySelectorAll('.config-tab').forEach(el => el.classList.remove('active'));
-            document.querySelector(`.config-tab[data-mode="${mode}"]`).classList.add('active');
-
-            // Update views
-            document.querySelectorAll('.config-view').forEach(el => el.style.display = 'none');
-            document.getElementById(`config-${mode}-view`).style.display = 'block';
-
-            // Sync data if needed (handled in tree-browser.js usually, but we can trigger an event or call a global function if we want tight coupling)
-            // For now, we'll let the click handler in tree-browser.js (if we add one) or just rely on the user to save/regenerate.
-            // Ideally, tree-browser.js should attach listeners to these buttons to sync state.
-            if (window.treeBrowser) {
-                window.treeBrowser.syncConfigMode(mode);
-            }
-        }
-
-        // Init state
-        switchTab('library');
-    </script>
 </body>
 
 </html>

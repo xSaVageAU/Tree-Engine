@@ -2,13 +2,12 @@ class TreeBrowser {
     constructor() {
         this.trees = [];
         this.selectedTreeId = null;
-        this.schema = null;
-        this.schemaFormBuilder = null;
+        this.monacoEditor = null;
+        this.isUpdatingEditor = false; // Flag to prevent auto-regeneration during programmatic updates
         this.init();
     }
 
     async init() {
-        await this.loadSchema();
         await this.loadTrees();
         this.renderTreeList();
 
@@ -18,13 +17,62 @@ class TreeBrowser {
             searchInput.addEventListener('input', (e) => this.filterTrees(e.target.value));
         }
 
+        // Initialize Monaco Editor
+        this.initMonacoEditor();
+
         // Initial state
         this.updateDeleteButtonState();
     }
 
-    async loadSchema() {
-        // Schema removed in new architecture, using raw JSON editing
-        console.log("Schema not used in new architecture");
+    initMonacoEditor() {
+        // Load Monaco Editor
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
+
+        require(['vs/editor/editor.main'], () => {
+            this.monacoEditor = monaco.editor.create(document.getElementById('monaco-container'), {
+                value: '{}',
+                language: 'json',
+                theme: 'vs-dark',
+                automaticLayout: true,
+                minimap: { enabled: false },
+                fontSize: 13,
+                tabSize: 2,
+                insertSpaces: true
+            });
+
+            // Add auto-regeneration with debounce
+            let debounceTimer = null;
+            this.monacoEditor.onDidChangeModelContent(() => {
+                // Skip if we're programmatically updating the editor
+                if (this.isUpdatingEditor) {
+                    return;
+                }
+
+                // Clear existing timer
+                if (debounceTimer) {
+                    clearTimeout(debounceTimer);
+                }
+
+                // Set new timer for 500ms
+                debounceTimer = setTimeout(() => {
+                    try {
+                        const jsonText = this.monacoEditor.getValue();
+                        const parsedJson = JSON.parse(jsonText);
+
+                        // Update current tree JSON
+                        window.currentTreeJson = parsedJson;
+
+                        // Regenerate tree preview
+                        if (typeof generateTree === 'function') {
+                            generateTree();
+                        }
+                    } catch (e) {
+                        // Invalid JSON, don't regenerate
+                        console.log("Invalid JSON, skipping regeneration:", e.message);
+                    }
+                }, 500);
+            });
+        });
     }
 
     async loadTrees() {
@@ -74,20 +122,10 @@ class TreeBrowser {
                 const treeJson = await response.json();
                 window.currentTreeJson = treeJson;
 
-                // Load into editor
-                document.getElementById('tree_name').value = treeId;
-                document.getElementById('tree_description').value = "";
-
-                // Build dynamic form from config
-                this.buildEditorForm(treeJson.config || {});
-
-                // Update JSON editor with full JSON
-                document.getElementById('json-editor').value = JSON.stringify(treeJson, null, 2);
+                // Show settings panel and populate
+                this.showSettings(treeId, treeJson);
 
                 this.updateDeleteButtonState();
-
-                // Switch to editor
-                switchTab('editor');
 
                 // Trigger generation (don't let errors break tree loading)
                 try {
@@ -104,15 +142,76 @@ class TreeBrowser {
         }
     }
 
+    showSettings(treeId, treeJson) {
+        // Hide library, show settings
+        const librarySection = document.getElementById('library-section');
+        const settingsPanel = document.getElementById('settings-panel');
+
+        librarySection.style.display = 'none';
+        settingsPanel.style.display = 'flex';
+
+        // Populate settings
+        document.getElementById('tree_name').value = treeId;
+        document.getElementById('tree_description').value = "";
+
+        // Update Monaco editor content if it exists
+        if (this.monacoEditor) {
+            this.isUpdatingEditor = true;
+            this.monacoEditor.setValue(JSON.stringify(treeJson, null, 2));
+            // Reset flag after a short delay to allow the change event to process
+            setTimeout(() => {
+                this.isUpdatingEditor = false;
+            }, 100);
+        }
+    }
+
+    hideSettings() {
+        // Show library, hide settings
+        const librarySection = document.getElementById('library-section');
+        const settingsPanel = document.getElementById('settings-panel');
+
+        librarySection.style.display = 'flex';
+        settingsPanel.style.display = 'none';
+    }
+
+    openJsonEditor() {
+        const bottomPanel = document.getElementById('bottom-panel');
+        bottomPanel.classList.add('open');
+
+        // Ensure Monaco editor has the current tree JSON
+        if (this.monacoEditor && window.currentTreeJson) {
+            this.isUpdatingEditor = true;
+            this.monacoEditor.setValue(JSON.stringify(window.currentTreeJson, null, 2));
+            // Reset flag after a short delay to allow the change event to process
+            setTimeout(() => {
+                this.isUpdatingEditor = false;
+            }, 100);
+        }
+    }
+
+    closeJsonEditor() {
+        const bottomPanel = document.getElementById('bottom-panel');
+        bottomPanel.classList.remove('open');
+
+        // Sync changes from Monaco back to currentTreeJson
+        if (this.monacoEditor) {
+            try {
+                const jsonText = this.monacoEditor.getValue();
+                window.currentTreeJson = JSON.parse(jsonText);
+            } catch (e) {
+                console.error("Invalid JSON in Monaco editor:", e);
+                alert("Invalid JSON in editor. Please fix errors before closing.");
+                // Re-open the panel
+                bottomPanel.classList.add('open');
+            }
+        }
+    }
+
     createNewTree() {
         this.selectedTreeId = null;
         this.renderTreeList(); // Clear selection
 
-        // Reset form
-        document.getElementById('tree_name').value = "";
-        document.getElementById('tree_description').value = "";
-
-        // Default config (could be extracted from schema defaults, but hardcoding a sensible starter here is fine)
+        // Default config
         const defaultConfig = {
             trunk_provider: {
                 type: "minecraft:simple_state_provider",
@@ -148,126 +247,13 @@ class TreeBrowser {
             config: defaultConfig
         };
 
-        this.buildEditorForm(defaultConfig);
-        document.getElementById('json-editor').value = JSON.stringify(window.currentTreeJson, null, 2);
+        // Show settings with empty name
+        this.showSettings("", window.currentTreeJson);
+        document.getElementById('tree_name').value = "";
 
         this.updateDeleteButtonState();
 
-        switchTab('editor');
         generateTree();
-    }
-
-    buildEditorForm(config) {
-        const container = document.getElementById('dynamic-form-container');
-        container.innerHTML = ''; // Clear existing form
-
-        // Create a simple dynamic form based on the JSON structure
-        this.buildFormFromObject(config, container, '');
-    }
-
-    buildFormFromObject(obj, container, path) {
-        for (const key in obj) {
-            const value = obj[key];
-            const currentPath = path ? `${path}.${key}` : key;
-
-            const fieldDiv = document.createElement('div');
-            fieldDiv.className = 'form-field';
-            fieldDiv.innerHTML = `<label>${key}:</label>`;
-
-            if (typeof value === 'string') {
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = value;
-                input.dataset.path = currentPath;
-                input.addEventListener('input', (e) => this.updateConfigFromForm());
-                fieldDiv.appendChild(input);
-            } else if (typeof value === 'number') {
-                const input = document.createElement('input');
-                input.type = 'number';
-                input.value = value;
-                input.dataset.path = currentPath;
-                input.addEventListener('input', (e) => this.updateConfigFromForm());
-                fieldDiv.appendChild(input);
-            } else if (typeof value === 'boolean') {
-                const input = document.createElement('input');
-                input.type = 'checkbox';
-                input.checked = value;
-                input.dataset.path = currentPath;
-                input.addEventListener('change', (e) => this.updateConfigFromForm());
-                fieldDiv.appendChild(input);
-            } else if (Array.isArray(value)) {
-                // For arrays, show as JSON for now
-                const textarea = document.createElement('textarea');
-                textarea.value = JSON.stringify(value, null, 2);
-                textarea.dataset.path = currentPath;
-                textarea.rows = 3;
-                textarea.addEventListener('input', (e) => this.updateConfigFromForm());
-                fieldDiv.appendChild(textarea);
-            } else if (typeof value === 'object' && value !== null) {
-                // Nested object
-                const nestedDiv = document.createElement('div');
-                nestedDiv.className = 'nested-object';
-                this.buildFormFromObject(value, nestedDiv, currentPath);
-                fieldDiv.appendChild(nestedDiv);
-            }
-
-            container.appendChild(fieldDiv);
-        }
-    }
-
-    updateConfigFromForm() {
-        if (!window.currentTreeJson || !window.currentTreeJson.config) return;
-
-        const inputs = document.querySelectorAll('#dynamic-form-container input, #dynamic-form-container textarea');
-        inputs.forEach(input => {
-            const path = input.dataset.path;
-            if (!path) return;
-
-            const keys = path.split('.');
-            let current = window.currentTreeJson.config;
-
-            // Navigate to the nested property
-            for (let i = 0; i < keys.length - 1; i++) {
-                if (!current[keys[i]]) current[keys[i]] = {};
-                current = current[keys[i]];
-            }
-
-            const lastKey = keys[keys.length - 1];
-            if (input.type === 'checkbox') {
-                current[lastKey] = input.checked;
-            } else if (input.type === 'number') {
-                current[lastKey] = parseFloat(input.value) || 0;
-            } else if (input.tagName === 'TEXTAREA') {
-                try {
-                    current[lastKey] = JSON.parse(input.value);
-                } catch (e) {
-                    // Invalid JSON, keep as string for now
-                    current[lastKey] = input.value;
-                }
-            } else {
-                current[lastKey] = input.value;
-            }
-        });
-    }
-
-    syncConfigMode(mode) {
-        // Called when switching tabs
-        if (mode === 'json') {
-            // Form -> JSON
-            this.updateConfigFromForm(); // Ensure config is updated from form
-            document.getElementById('json-editor').value = JSON.stringify(window.currentTreeJson, null, 2);
-        } else {
-            // JSON -> Form
-            try {
-                const json = document.getElementById('json-editor').value;
-                const fullJson = JSON.parse(json);
-                window.currentTreeJson = fullJson;
-                this.buildEditorForm(fullJson.config || {});
-            } catch (e) {
-                alert("Invalid JSON in editor. Fix errors before switching back to Form view.");
-                console.error(e);
-            }
-        }
     }
 
     async saveCurrentTree() {
@@ -277,20 +263,19 @@ class TreeBrowser {
             return;
         }
 
-        // Get current full JSON from active view
-        let fullJson = window.currentTreeJson || { type: "minecraft:tree", config: {} };
-        const activeTab = document.querySelector('.config-tab.active');
-        if (activeTab && activeTab.dataset.mode === 'json') {
+        // Get current JSON from Monaco editor if it's open
+        const bottomPanel = document.getElementById('bottom-panel');
+        if (bottomPanel.classList.contains('open') && this.monacoEditor) {
             try {
-                fullJson = JSON.parse(document.getElementById('json-editor').value);
+                const jsonText = this.monacoEditor.getValue();
+                window.currentTreeJson = JSON.parse(jsonText);
             } catch (e) {
-                alert("Invalid JSON. Cannot save.");
+                alert("Invalid JSON in editor. Cannot save.");
                 return;
             }
-        } else {
-            // Ensure config is updated from form
-            this.updateConfigFromForm();
         }
+
+        let fullJson = window.currentTreeJson || { type: "minecraft:tree", config: {} };
 
         // Set ID
         fullJson.id = this.selectedTreeId || name.toLowerCase().replace(/ /g, '_');
@@ -336,7 +321,8 @@ class TreeBrowser {
                 this.selectedTreeId = null;
                 await this.loadTrees();
                 this.renderTreeList();
-                this.createNewTree(); // Reset to new tree state
+                this.hideSettings();
+                this.updateDeleteButtonState();
             } else {
                 alert("Failed to delete tree");
             }
@@ -423,7 +409,6 @@ class TreeBrowser {
             el.className = 'vanilla-item';
 
             // Display clean name but store full ID
-            // "minecraft:oak" -> "oak" (but show full if modded)
             const displayName = id.startsWith('minecraft:') ? id.split(':')[1] : id;
 
             el.textContent = displayName;
@@ -444,8 +429,6 @@ class TreeBrowser {
         vanillaList.innerHTML = '<div style="padding: 20px; text-align: center; color: #858585;">Importing...</div>';
 
         try {
-            // Fetch the tree config from backend
-            // Backend now accepts full ID like "minecraft:oak"
             const response = await fetch(`/api/vanilla_tree/${id}`);
 
             if (response.ok) {
@@ -456,22 +439,16 @@ class TreeBrowser {
 
                 // Set name to the imported ID (cleaned up)
                 const name = id.split(':')[1] || id;
+
+                // Show settings
+                this.selectedTreeId = null; // It's a new unsaved tree
+                this.showSettings(name, treeJson);
                 document.getElementById('tree_name').value = name;
 
                 const descInput = document.getElementById('tree_description');
                 if (descInput) descInput.value = `Imported from ${id}`;
 
-                // Build dynamic form
-                this.buildEditorForm(treeJson.config || {});
-
-                // Update JSON editor
-                document.getElementById('json-editor').value = JSON.stringify(treeJson, null, 2);
-
-                this.selectedTreeId = null; // It's a new unsaved tree
                 this.updateDeleteButtonState();
-
-                // Switch to editor
-                switchTab('editor');
 
                 // Close modal
                 modal.style.display = 'none';
@@ -496,11 +473,14 @@ class TreeBrowser {
 
 window.addEventListener('DOMContentLoaded', () => {
     treeBrowser = new TreeBrowser();
-    window.treeBrowser = treeBrowser; // Expose to global scope for index.html calls
+    window.treeBrowser = treeBrowser; // Expose to global scope
 
     // Bind buttons
     document.getElementById('btn-save')?.addEventListener('click', () => treeBrowser.saveCurrentTree());
     document.getElementById('btn-delete')?.addEventListener('click', () => treeBrowser.deleteSelected());
     document.getElementById('btn-create-new')?.addEventListener('click', () => treeBrowser.createNewTree());
     document.getElementById('btn-import')?.addEventListener('click', () => treeBrowser.openImportModal());
+    document.getElementById('btn-edit-json')?.addEventListener('click', () => treeBrowser.openJsonEditor());
+    document.getElementById('btn-close-editor')?.addEventListener('click', () => treeBrowser.closeJsonEditor());
+    document.getElementById('btn-back-to-library')?.addEventListener('click', () => treeBrowser.hideSettings());
 });
