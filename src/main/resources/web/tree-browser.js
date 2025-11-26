@@ -89,9 +89,12 @@ class TreeBrowser {
                 // Switch to editor
                 switchTab('editor');
 
-                // Trigger updates
-                updateMaterials();
-                generateTree();
+                // Trigger generation (don't let errors break tree loading)
+                try {
+                    await generateTree();
+                } catch (genError) {
+                    console.warn("Initial generation failed, but tree loaded:", genError);
+                }
             } else {
                 alert("Failed to load tree");
             }
@@ -151,7 +154,6 @@ class TreeBrowser {
         this.updateDeleteButtonState();
 
         switchTab('editor');
-        updateMaterials();
         generateTree();
     }
 
@@ -442,8 +444,7 @@ class TreeBrowser {
                 // Switch to editor
                 switchTab('editor');
 
-                console.log("Updating materials and generating tree...");
-                await updateMaterials();
+                console.log("Generating tree...");
                 await generateTree();
                 console.log("Import complete.");
             } else {

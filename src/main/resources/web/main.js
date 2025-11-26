@@ -146,113 +146,7 @@ function extractBlockTypesFromFeature(json) {
     return blocks;
 }
 
-async function updateMaterials() {
-    Object.values(masterMeshes).forEach(m => {
-        if (m.material) m.material.dispose();
-        m.dispose();
-    });
-    masterMeshes = {};
-
-    const pack = document.getElementById('resource_pack').value;
-    const path = `/textures/${pack}/`;
-
-    // Extract block names from the current tree JSON or form
-    let trunkRaw = "minecraft:oak_log";
-    let foliageRaw = "minecraft:oak_leaves";
-
-    if (window.currentTreeJson) {
-        // Use helper to extract from complex JSON
-        const extracted = extractBlockTypesFromFeature(window.currentTreeJson);
-        if (extracted.trunks.size > 0) {
-            trunkRaw = Array.from(extracted.trunks)[0]; // Use first trunk type found
-        }
-        if (extracted.foliage.size > 0) {
-            foliageRaw = Array.from(extracted.foliage)[0]; // Use first foliage type found
-        }
-    }
-
-    const trunkName = trunkRaw.split(':').pop();
-    const foliageName = foliageRaw.split(':').pop();
-
-    // Read biome from selector
-    const biomeSelect = document.getElementById('biome_select');
-    const selectedBiome = biomeSelect ? biomeSelect.value : 'plains';
-    const leafColor = resolveLeafColor(foliageRaw, selectedBiome);
-
-    const loadTex = (name) => {
-        return new BABYLON.Texture(path + name, scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
-    }
-
-    // --- 1. LOGS ---
-    const matSide = new BABYLON.StandardMaterial("logSide", scene);
-    matSide.diffuseTexture = loadTex(trunkName + ".png");
-    matSide.specularColor = BABYLON.Color3.Black();
-
-    const matTop = new BABYLON.StandardMaterial("logTop", scene);
-    matTop.diffuseTexture = loadTex(trunkName + "_top.png");
-    matTop.specularColor = BABYLON.Color3.Black();
-
-    const logSideRotatedTex = loadTex(trunkName + ".png");
-    logSideRotatedTex.wAng = Math.PI / 2;
-    logSideRotatedTex.uRotationCenter = 0.5;
-    logSideRotatedTex.vRotationCenter = 0.5;
-
-    const matSideRotated = new BABYLON.StandardMaterial("logSideRot", scene);
-    matSideRotated.diffuseTexture = logSideRotatedTex;
-    matSideRotated.specularColor = BABYLON.Color3.Black();
-
-    const multiLog = new BABYLON.MultiMaterial("multiLog", scene);
-    multiLog.subMaterials.push(matSide);
-    multiLog.subMaterials.push(matTop);
-    multiLog.subMaterials.push(matSideRotated);
-
-    const faceUV = new Array(6).fill(new BABYLON.Vector4(0, 0, 1, 1));
-    const logMesh = BABYLON.MeshBuilder.CreateBox("master_log", { size: 1, faceUV: faceUV }, scene);
-    logMesh.material = multiLog;
-    logMesh.subMeshes = [];
-    new BABYLON.SubMesh(0, 0, 24, 0, 12, logMesh);
-    new BABYLON.SubMesh(2, 0, 24, 12, 12, logMesh);
-    new BABYLON.SubMesh(1, 0, 24, 24, 12, logMesh);
-
-    logMesh.isVisible = false;
-    masterMeshes['log'] = logMesh;
-
-    // --- 2. LEAVES ---
-    const leafMat = new BABYLON.StandardMaterial("leafMat", scene);
-    const leafTex = loadTex(foliageName + ".png");
-    leafTex.hasAlpha = true;
-    leafMat.diffuseTexture = leafTex;
-    leafMat.diffuseColor = leafColor;
-    leafMat.specularColor = BABYLON.Color3.Black();
-    leafMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHATEST;
-    leafMat.alphaCutoff = 0.5;
-    leafMat.backFaceCulling = true;
-
-    const leafMesh = BABYLON.MeshBuilder.CreateBox("master_leaves", { size: 1 }, scene);
-    leafMesh.material = leafMat;
-    leafMesh.isVisible = false;
-    masterMeshes['leaves'] = leafMesh;
-
-    // --- 3. DIRT ---
-    const dirtMat = new BABYLON.StandardMaterial("dirtMat", scene);
-    dirtMat.diffuseTexture = loadTex("dirt.png");
-    dirtMat.specularColor = BABYLON.Color3.Black();
-
-    const dirtMesh = BABYLON.MeshBuilder.CreateBox("master_dirt", { size: 1 }, scene);
-    dirtMesh.material = dirtMat;
-    dirtMesh.isVisible = false;
-    masterMeshes['dirt'] = dirtMesh;
-
-    // --- 4. BEEHIVE/BEE NEST ---
-    const beehiveMat = new BABYLON.StandardMaterial("beehiveMat", scene);
-    beehiveMat.diffuseTexture = loadTex("bee_nest_front.png"); // Use bee_nest texture for both
-    beehiveMat.specularColor = BABYLON.Color3.Black();
-
-    const beehiveMesh = BABYLON.MeshBuilder.CreateBox("master_beehive", { size: 1 }, scene);
-    beehiveMesh.material = beehiveMat;
-    beehiveMesh.isVisible = false;
-    masterMeshes['beehive'] = beehiveMesh;
-}
+// updateMaterials() removed - materials are now created dynamically per block type in renderScene()
 
 async function generateTree() {
     const btn = document.getElementById('btn_generate');
@@ -266,10 +160,6 @@ async function generateTree() {
     if (window.currentTreeJson) {
         // Use the full loaded JSON (preserves wrappers like random_patch)
         featureJson = window.currentTreeJson;
-
-        // If we have form data, we might need to update the internal config
-        // For now, we assume the form updates window.currentTreeJson.config directly if it's linked
-        // (This might need refinement for complex wrappers if the form only edits a sub-part)
     } else {
         // Extract from form and wrap in minecraft:tree
         const container = document.getElementById('dynamic-form-container');
@@ -289,8 +179,6 @@ async function generateTree() {
         return;
     }
 
-    await updateMaterials();
-
     try {
         const response = await fetch('/api/generate', {
             method: 'POST',
@@ -298,7 +186,19 @@ async function generateTree() {
             body: JSON.stringify(featureJson)
         });
         if (!response.ok) throw new Error("API Error: " + await response.text());
-        const blocks = await response.json();
+        let blocks = await response.json();
+
+        // Filter out air blocks
+        blocks = blocks.filter(b => b.blockState.Name !== "minecraft:air");
+
+        // Deduplicate blocks at same position (keep last one to match Minecraft behavior)
+        const blockMap = new Map();
+        blocks.forEach(b => {
+            const key = `${b.x},${b.y},${b.z}`;
+            blockMap.set(key, b);
+        });
+        blocks = Array.from(blockMap.values());
+
         renderScene(blocks);
         if (status) status.textContent = `Generated ${blocks.length} blocks.`;
     } catch (error) {
@@ -356,15 +256,23 @@ function renderScene(blocks) {
 }
 
 function renderLogs(blocks, blockId, texturePath) {
+    // Determine the base texture name
+    // For wood blocks (oak_wood, stripped_oak_wood), use the corresponding log texture
+    let baseTextureName = blockId;
+    if (blockId.endsWith('_wood')) {
+        // oak_wood -> oak_log, stripped_oak_wood -> stripped_oak_log
+        baseTextureName = blockId.replace('_wood', '_log');
+    }
+
     const matSide = new BABYLON.StandardMaterial(`${blockId}_side`, scene);
-    matSide.diffuseTexture = new BABYLON.Texture(texturePath + blockId + ".png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
+    matSide.diffuseTexture = new BABYLON.Texture(texturePath + baseTextureName + ".png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
     matSide.specularColor = BABYLON.Color3.Black();
 
     const matTop = new BABYLON.StandardMaterial(`${blockId}_top`, scene);
-    matTop.diffuseTexture = new BABYLON.Texture(texturePath + blockId + "_top.png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
+    matTop.diffuseTexture = new BABYLON.Texture(texturePath + baseTextureName + "_top.png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
     matTop.specularColor = BABYLON.Color3.Black();
 
-    const logSideRotatedTex = new BABYLON.Texture(texturePath + blockId + ".png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
+    const logSideRotatedTex = new BABYLON.Texture(texturePath + baseTextureName + ".png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
     logSideRotatedTex.wAng = Math.PI / 2;
     logSideRotatedTex.uRotationCenter = 0.5;
     logSideRotatedTex.vRotationCenter = 0.5;
@@ -374,9 +282,18 @@ function renderLogs(blocks, blockId, texturePath) {
     matSideRotated.specularColor = BABYLON.Color3.Black();
 
     const multiLog = new BABYLON.MultiMaterial(`multi_${blockId}`, scene);
-    multiLog.subMaterials.push(matSide);
-    multiLog.subMaterials.push(matTop);
-    multiLog.subMaterials.push(matSideRotated);
+
+    // For wood blocks, use side texture on all faces (no top texture)
+    if (blockId.endsWith('_wood')) {
+        multiLog.subMaterials.push(matSide);  // All faces use side texture
+        multiLog.subMaterials.push(matSide);
+        multiLog.subMaterials.push(matSideRotated);
+    } else {
+        // Regular logs use side + top textures
+        multiLog.subMaterials.push(matSide);
+        multiLog.subMaterials.push(matTop);
+        multiLog.subMaterials.push(matSideRotated);
+    }
 
     const faceUV = new Array(6).fill(new BABYLON.Vector4(0, 0, 1, 1));
     const logMesh = BABYLON.MeshBuilder.CreateBox(`master_${blockId}`, { size: 1, faceUV: faceUV }, scene);
