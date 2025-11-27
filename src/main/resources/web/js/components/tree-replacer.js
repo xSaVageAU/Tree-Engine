@@ -1,0 +1,316 @@
+/**
+ * Tree Replacer UI Component
+ * Handles the tree replacer panel functionality.
+ */
+
+class TreeReplacerUI {
+    constructor() {
+        this.replacers = [];
+        this.vanillaTrees = [];
+        this.customTrees = [];
+        this.currentReplacer = null;
+        this.init();
+    }
+
+    async init() {
+        // Set up event listeners
+        document.getElementById('btn-tree-replacers').addEventListener('click', () => {
+            this.showReplacersPanel();
+        });
+
+        document.getElementById('btn-back-to-library-from-replacers').addEventListener('click', () => {
+            this.hideReplacersPanel();
+        });
+
+        // Load data
+        await this.loadVanillaTrees();
+        await this.loadCustomTrees();
+        await this.loadReplacers();
+
+        // Render the panel
+        this.renderReplacersPanel();
+    }
+
+    async loadVanillaTrees() {
+        try {
+            const response = await fetch('/api/vanilla_trees');
+            this.vanillaTrees = await response.json();
+        } catch (error) {
+            console.error('Failed to load vanilla trees:', error);
+        }
+    }
+
+    async loadCustomTrees() {
+        try {
+            const response = await fetch('/api/trees');
+            this.customTrees = await response.json();
+        } catch (error) {
+            console.error('Failed to load custom trees:', error);
+        }
+    }
+
+    async loadReplacers() {
+        try {
+            const response = await fetch('/api/replacers');
+            this.replacers = await response.json();
+        } catch (error) {
+            console.error('Failed to load tree replacers:', error);
+            this.replacers = [];
+        }
+    }
+
+    showReplacersPanel() {
+        document.getElementById('library-section').style.display = 'none';
+        document.getElementById('settings-panel').style.display = 'none';
+        document.getElementById('replacers-panel').style.display = 'flex';
+        this.renderReplacersPanel();
+    }
+
+    hideReplacersPanel() {
+        document.getElementById('replacers-panel').style.display = 'none';
+        document.getElementById('library-section').style.display = 'flex';
+    }
+
+    renderReplacersPanel() {
+        const panel = document.getElementById('replacers-panel');
+        const scrollContent = panel.querySelector('.scroll-content');
+
+        scrollContent.innerHTML = `
+            <div style="padding: 15px;">
+                <button id="btn-create-replacer" style="width: 100%; margin-bottom: 15px;">+ Create New Replacer</button>
+                
+                <div id="replacers-list">
+                    ${this.replacers.length === 0
+                ? '<p style="padding: 20px; color: #858585; text-align: center;">No tree replacers yet. Create one to get started!</p>'
+                : this.replacers.map(r => this.renderReplacerItem(r)).join('')
+            }
+                </div>
+            </div>
+        `;
+
+        // Add event listener for create button
+        const createBtn = document.getElementById('btn-create-replacer');
+        if (createBtn) {
+            createBtn.addEventListener('click', () => this.showCreateReplacerForm());
+        }
+
+        // Add event listeners for edit/delete buttons
+        this.replacers.forEach(replacer => {
+            const editBtn = document.getElementById(`edit-replacer-${replacer.id}`);
+            const deleteBtn = document.getElementById(`delete-replacer-${replacer.id}`);
+
+            if (editBtn) {
+                editBtn.addEventListener('click', () => this.editReplacer(replacer));
+            }
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', () => this.deleteReplacer(replacer.id));
+            }
+        });
+    }
+
+    renderReplacerItem(replacer) {
+        return `
+            <div class="replacer-item" style="background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #333;">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                    <div>
+                        <h4 style="margin: 0 0 5px 0; color: #fff;">${this.getTreeDisplayName(replacer.vanilla_tree_id)}</h4>
+                        <p style="margin: 0; color: #858585; font-size: 12px;">${replacer.vanilla_tree_id}</p>
+                    </div>
+                    <div style="display: flex; gap: 5px;">
+                        <button id="edit-replacer-${replacer.id}" class="secondary" style="padding: 5px 10px; font-size: 12px;">Edit</button>
+                        <button id="delete-replacer-${replacer.id}" class="secondary" style="padding: 5px 10px; font-size: 12px;">Delete</button>
+                    </div>
+                </div>
+                <div style="color: #aaa; font-size: 13px;">
+                    <strong>Replacement Pool (${replacer.replacement_pool.length}):</strong><br>
+                    ${replacer.replacement_pool.map(id => `<span style="display: inline-block; background: #2a2a2a; padding: 2px 8px; margin: 2px; border-radius: 3px; font-size: 11px;">${id}</span>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    getTreeDisplayName(treeId) {
+        // Extract the tree name from the ID (e.g., "minecraft:oak" -> "Oak")
+        const parts = treeId.split(':');
+        const name = parts[parts.length - 1];
+        return name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+
+    showCreateReplacerForm() {
+        this.currentReplacer = {
+            id: '',
+            vanilla_tree_id: '',
+            replacement_pool: []
+        };
+        this.renderReplacerForm();
+    }
+
+    editReplacer(replacer) {
+        this.currentReplacer = JSON.parse(JSON.stringify(replacer)); // Deep copy
+        this.renderReplacerForm();
+    }
+
+    renderReplacerForm() {
+        const panel = document.getElementById('replacers-panel');
+        const scrollContent = panel.querySelector('.scroll-content');
+
+        scrollContent.innerHTML = `
+            <div style="padding: 15px;">
+                <h3 style="margin-top: 0;">${this.currentReplacer.id ? 'Edit' : 'Create'} Tree Replacer</h3>
+                
+                <div class="control-group">
+                    <label>Vanilla Tree to Replace</label>
+                    <select id="replacer-vanilla-tree" ${this.currentReplacer.id ? 'disabled' : ''}>
+                        <option value="">Select a vanilla tree...</option>
+                        ${this.vanillaTrees.map(treeId => `
+                            <option value="${treeId}" ${this.currentReplacer.vanilla_tree_id === treeId ? 'selected' : ''}>
+                                ${this.getTreeDisplayName(treeId)} (${treeId})
+                            </option>
+                        `).join('')}
+                    </select>
+                    ${this.currentReplacer.id ? '<p style="color: #858585; font-size: 12px; margin: 5px 0 0 0;">Cannot change vanilla tree for existing replacer</p>' : ''}
+                </div>
+
+                <div class="control-group">
+                    <label>Replacement Pool</label>
+                    <p style="color: #858585; font-size: 12px; margin: 0 0 10px 0;">Select custom trees to randomly replace the vanilla tree</p>
+                    
+                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #333; border-radius: 3px; background: #1a1a1a; padding: 10px;">
+                        ${this.customTrees.length === 0
+                ? '<p style="color: #858585; text-align: center; margin: 0;">No custom trees available. Create some trees first!</p>'
+                : this.customTrees.map(treeId => `
+                                <label style="display: block; padding: 5px; cursor: pointer;">
+                                    <input type="checkbox" 
+                                           value="${treeId}" 
+                                           ${this.currentReplacer.replacement_pool.includes('tree_engine:' + treeId) ? 'checked' : ''}
+                                           onchange="treeReplacerUI.toggleCustomTree(this)">
+                                    <span style="margin-left: 5px;">${treeId}</span>
+                                </label>
+                            `).join('')
+            }
+                    </div>
+                </div>
+
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button id="btn-save-replacer" style="flex: 1;">Save Replacer</button>
+                    <button id="btn-cancel-replacer" class="secondary" style="flex: 1;">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        // Add event listeners
+        document.getElementById('btn-save-replacer').addEventListener('click', () => this.saveReplacer());
+        document.getElementById('btn-cancel-replacer').addEventListener('click', () => {
+            this.currentReplacer = null;
+            this.renderReplacersPanel();
+        });
+    }
+
+    toggleCustomTree(checkbox) {
+        const treeId = 'tree_engine:' + checkbox.value;
+        if (checkbox.checked) {
+            if (!this.currentReplacer.replacement_pool.includes(treeId)) {
+                this.currentReplacer.replacement_pool.push(treeId);
+            }
+        } else {
+            this.currentReplacer.replacement_pool = this.currentReplacer.replacement_pool.filter(id => id !== treeId);
+        }
+    }
+
+    async saveReplacer() {
+        const vanillaTreeSelect = document.getElementById('replacer-vanilla-tree');
+        if (!this.currentReplacer.id) {
+            this.currentReplacer.vanilla_tree_id = vanillaTreeSelect.value;
+        }
+
+        // Validate
+        if (!this.currentReplacer.vanilla_tree_id) {
+            alert('Please select a vanilla tree to replace');
+            return;
+        }
+
+        if (this.currentReplacer.replacement_pool.length === 0) {
+            alert('Please select at least one custom tree for the replacement pool');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/replacers', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(this.currentReplacer)
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to save replacer');
+            }
+
+            // Reload replacers and show list
+            await this.loadReplacers();
+            this.currentReplacer = null;
+            this.renderReplacersPanel();
+
+            // Show success message
+            const statusDiv = document.getElementById('status');
+            if (statusDiv) {
+                statusDiv.textContent = 'Tree replacer saved successfully!';
+                statusDiv.style.background = '#2a5a2a';
+                setTimeout(() => {
+                    statusDiv.textContent = 'Ready';
+                    statusDiv.style.background = '';
+                }, 3000);
+            }
+        } catch (error) {
+            console.error('Failed to save replacer:', error);
+            alert('Failed to save tree replacer: ' + error.message);
+        }
+    }
+
+    async deleteReplacer(id) {
+        if (!confirm('Are you sure you want to delete this tree replacer? This will restore the vanilla tree.')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/replacers/${id}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to delete replacer');
+            }
+
+            // Reload replacers
+            await this.loadReplacers();
+            this.renderReplacersPanel();
+
+            // Show success message
+            const statusDiv = document.getElementById('status');
+            if (statusDiv) {
+                statusDiv.textContent = 'Tree replacer deleted successfully!';
+                statusDiv.style.background = '#2a5a2a';
+                setTimeout(() => {
+                    statusDiv.textContent = 'Ready';
+                    statusDiv.style.background = '';
+                }, 3000);
+            }
+        } catch (error) {
+            console.error('Failed to delete replacer:', error);
+            alert('Failed to delete tree replacer: ' + error.message);
+        }
+    }
+}
+
+// Initialize when DOM is ready
+let treeReplacerUI;
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        treeReplacerUI = new TreeReplacerUI();
+    });
+} else {
+    treeReplacerUI = new TreeReplacerUI();
+}

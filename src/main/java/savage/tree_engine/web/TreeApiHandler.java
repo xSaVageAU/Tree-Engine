@@ -15,6 +15,7 @@ import net.minecraft.world.gen.feature.ConfiguredFeature;
 import net.minecraft.world.gen.feature.TreeFeatureConfig;
 import savage.tree_engine.TreeEngine;
 import savage.tree_engine.config.TreeConfigManager;
+import savage.tree_engine.config.TreeReplacerManager;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -83,6 +84,17 @@ public class TreeApiHandler implements HttpHandler {
                         }
                     } else {
                         sendError(exchange, 405, "Method not allowed");
+                    }
+                } else if ("replacers".equals(endpoint)) {
+                    if (parts.length == 3) {
+                        if ("GET".equals(method)) handleListReplacers(exchange);
+                        else if ("POST".equals(method)) handleSaveReplacer(exchange);
+                        else sendError(exchange, 405, "Method not allowed");
+                    } else if (parts.length == 4) {
+                        String id = parts[3];
+                        if ("GET".equals(method)) handleGetReplacer(exchange, id);
+                        else if ("DELETE".equals(method)) handleDeleteReplacer(exchange, id);
+                        else sendError(exchange, 405, "Method not allowed");
                     }
                 } else {
                     sendError(exchange, 404, "Not found");
@@ -267,6 +279,75 @@ public class TreeApiHandler implements HttpHandler {
             sendError(exchange, 500, "Failed to delete tree");
         }
     }
+
+    private void handleListReplacers(HttpExchange exchange) throws IOException {
+        try {
+            List<TreeReplacerManager.TreeReplacer> replacers = TreeReplacerManager.getAll();
+            String json = GSON.toJson(replacers);
+            sendResponse(exchange, 200, json);
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to list tree replacers", e);
+            sendError(exchange, 500, "Failed to list tree replacers");
+        }
+    }
+
+    private void handleGetReplacer(HttpExchange exchange, String id) throws IOException {
+        try {
+            TreeReplacerManager.TreeReplacer replacer = TreeReplacerManager.get(id);
+            if (replacer == null) {
+                sendError(exchange, 404, "Tree replacer not found");
+                return;
+            }
+            String json = GSON.toJson(replacer);
+            sendResponse(exchange, 200, json);
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to get tree replacer: " + id, e);
+            sendError(exchange, 500, "Failed to get tree replacer");
+        }
+    }
+
+    private void handleSaveReplacer(HttpExchange exchange) throws IOException {
+        try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
+            TreeReplacerManager.TreeReplacer replacer = GSON.fromJson(reader, TreeReplacerManager.TreeReplacer.class);
+            
+            if (replacer.id == null || replacer.id.isEmpty()) {
+                replacer.id = "replacer_" + System.currentTimeMillis();
+            }
+            
+            if (replacer.vanilla_tree_id == null || replacer.vanilla_tree_id.isEmpty()) {
+                sendError(exchange, 400, "Missing vanilla_tree_id");
+                return;
+            }
+            
+            if (replacer.replacement_pool == null || replacer.replacement_pool.isEmpty()) {
+                sendError(exchange, 400, "Replacement pool cannot be empty");
+                return;
+            }
+            
+            TreeReplacerManager.saveReplacer(replacer);
+            sendResponse(exchange, 200, "{\"id\": \"" + replacer.id + "\"}");
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to save tree replacer", e);
+            sendError(exchange, 400, "Invalid JSON or failed to save: " + e.getMessage());
+        }
+    }
+
+    private void handleDeleteReplacer(HttpExchange exchange, String id) throws IOException {
+        try {
+            TreeReplacerManager.TreeReplacer replacer = TreeReplacerManager.get(id);
+            if (replacer == null) {
+                sendError(exchange, 404, "Tree replacer not found");
+                return;
+            }
+            
+            TreeReplacerManager.delete(id);
+            sendResponse(exchange, 200, "{\"success\": true}");
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to delete tree replacer: " + id, e);
+            sendError(exchange, 500, "Failed to delete tree replacer");
+        }
+    }
+
 
     private void sendResponse(HttpExchange exchange, int code, String response) throws IOException {
         byte[] bytes = response.getBytes(StandardCharsets.UTF_8);

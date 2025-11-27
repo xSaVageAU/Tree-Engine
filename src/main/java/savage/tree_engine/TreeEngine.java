@@ -15,6 +15,9 @@ public class TreeEngine implements ModInitializer {
         // Initialize main config first
         savage.tree_engine.config.MainConfig.init();
         
+        // Initialize tree replacers
+        savage.tree_engine.config.TreeReplacerManager.init();
+        
         // Register commands
         net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             savage.tree_engine.command.TreeEngineCommand.register(dispatcher);
