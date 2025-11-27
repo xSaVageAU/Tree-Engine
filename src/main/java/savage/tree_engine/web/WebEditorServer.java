@@ -57,7 +57,7 @@ public class WebEditorServer {
     private static void startServer() {
         try {
             int port = savage.tree_engine.config.MainConfig.get().server_port;
-            server = HttpServer.create(new InetSocketAddress(port), 0);
+            server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
             server.createContext("/", new StaticHandler());
             server.createContext("/api/generate", new GenerateHandler());
             server.createContext("/api/", new TreeApiHandler(minecraftServer));
