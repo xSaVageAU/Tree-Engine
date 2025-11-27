@@ -3,7 +3,9 @@ package savage.tree_engine.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import savage.tree_engine.TreeEngine;
 
 import java.io.IOException;
@@ -12,17 +14,17 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Manages tree replacer configurations.
  * A tree replacer allows replacing vanilla tree models with custom tree pools.
+ * 
+ * Refactored to use the existence of datapack files as the source of truth.
  */
 public class TreeReplacerManager {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path CONFIG_FILE = Paths.get("config", "tree_engine", "tree_replacers.json");
     private static final Path DATAPACK_ROOT = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees");
-    
-    private static TreeReplacerConfig config;
     
     public static class TreeReplacer {
         public String id;
@@ -40,121 +42,168 @@ public class TreeReplacerManager {
         }
     }
     
-    public static class TreeReplacerConfig {
-        public List<TreeReplacer> replacers;
-        
-        public TreeReplacerConfig() {
-            this.replacers = new ArrayList<>();
-        }
-    }
-    
     /**
      * Initialize the tree replacer system.
+     * Now primarily ensures that PlacedFeatures exist for custom trees.
      */
     public static void init() {
+        // Ensure all custom trees have corresponding PlacedFeatures
+        ensurePlacedFeaturesExist();
+    }
+    
+    /**
+     * Scans all custom trees and ensures they have a corresponding PlacedFeature.
+     * This is required for them to be used in simple_random_selector.
+     */
+    private static void ensurePlacedFeaturesExist() {
         try {
-            if (Files.exists(CONFIG_FILE)) {
-                String json = Files.readString(CONFIG_FILE);
-                config = GSON.fromJson(json, TreeReplacerConfig.class);
-                TreeEngine.LOGGER.info("Loaded tree replacers config");
-            } else {
-                config = new TreeReplacerConfig();
-                save();
-                TreeEngine.LOGGER.info("Created default tree replacers config");
-            }
+            Path configuredFeatureDir = DATAPACK_ROOT.resolve("data").resolve("tree_engine").resolve("worldgen").resolve("configured_feature");
+            Path placedFeatureDir = DATAPACK_ROOT.resolve("data").resolve("tree_engine").resolve("worldgen").resolve("placed_feature");
             
-            // Generate datapack files for all replacers
-            regenerateAll();
+            if (!Files.exists(configuredFeatureDir)) return;
+            Files.createDirectories(placedFeatureDir);
+            
+            try (Stream<Path> stream = Files.list(configuredFeatureDir)) {
+                stream.filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".json"))
+                    .forEach(configFile -> {
+                        String filename = configFile.getFileName().toString();
+                        Path placedFile = placedFeatureDir.resolve(filename);
+                        
+                        if (!Files.exists(placedFile)) {
+                            try {
+                                String id = filename.replace(".json", "");
+                                JsonObject placedFeature = new JsonObject();
+                                placedFeature.addProperty("feature", "tree_engine:" + id);
+                                placedFeature.add("placement", new com.google.gson.JsonArray()); // Empty placement rules
+                                
+                                Files.writeString(placedFile, GSON.toJson(placedFeature));
+                                TreeEngine.LOGGER.info("Auto-generated missing PlacedFeature for: " + id);
+                            } catch (IOException e) {
+                                TreeEngine.LOGGER.error("Failed to generate PlacedFeature for " + filename, e);
+                            }
+                        }
+                    });
+            }
         } catch (IOException e) {
-            TreeEngine.LOGGER.error("Failed to initialize tree replacers", e);
-            config = new TreeReplacerConfig();
+            TreeEngine.LOGGER.error("Failed to ensure PlacedFeatures exist", e);
         }
     }
     
     /**
-     * Get all tree replacers.
+     * Get all tree replacers by scanning the datapack directory.
      */
     public static List<TreeReplacer> getAll() {
-        if (config == null) {
-            init();
+        List<TreeReplacer> replacers = new ArrayList<>();
+        
+        // Scan data/minecraft/worldgen/configured_feature/
+        Path minecraftFeaturesDir = DATAPACK_ROOT.resolve("data").resolve("minecraft").resolve("worldgen").resolve("configured_feature");
+        
+        if (!Files.exists(minecraftFeaturesDir)) {
+            return replacers;
         }
-        return config.replacers;
+        
+        try (Stream<Path> stream = Files.list(minecraftFeaturesDir)) {
+            stream.filter(Files::isRegularFile)
+                .filter(p -> p.toString().endsWith(".json"))
+                .forEach(file -> {
+                    try {
+                        TreeReplacer replacer = parseReplacerFile(file);
+                        if (replacer != null) {
+                            replacers.add(replacer);
+                        }
+                    } catch (Exception e) {
+                        TreeEngine.LOGGER.error("Failed to parse replacer file: " + file, e);
+                    }
+                });
+        } catch (IOException e) {
+            TreeEngine.LOGGER.error("Failed to scan for tree replacers", e);
+        }
+        
+        return replacers;
+    }
+    
+    /**
+     * Parse a configured feature file to reconstruct a TreeReplacer object.
+     */
+    private static TreeReplacer parseReplacerFile(Path file) throws IOException {
+        String jsonContent = Files.readString(file);
+        JsonObject json = JsonParser.parseString(jsonContent).getAsJsonObject();
+        
+        // Check if it's a simple_random_selector (which we use for replacers)
+        if (!json.has("type") || !json.get("type").getAsString().equals("minecraft:simple_random_selector")) {
+            return null;
+        }
+        
+        if (!json.has("config")) return null;
+        JsonObject config = json.getAsJsonObject("config");
+        
+        if (!config.has("features")) return null;
+        JsonArray features = config.getAsJsonArray("features");
+        
+        List<String> pool = new ArrayList<>();
+        for (JsonElement element : features) {
+            if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+                pool.add(element.getAsString());
+            } else if (element.isJsonObject()) {
+                JsonObject entry = element.getAsJsonObject();
+                if (entry.has("feature")) {
+                    pool.add(entry.get("feature").getAsString());
+                }
+            }
+        }
+        
+        String filename = file.getFileName().toString();
+        String vanillaId = "minecraft:" + filename.replace(".json", "");
+        
+        // We use the vanilla ID as the replacer ID since it's 1:1
+        return new TreeReplacer(vanillaId, vanillaId, pool);
     }
     
     /**
      * Get a tree replacer by ID.
      */
     public static TreeReplacer get(String id) {
-        if (config == null) {
-            init();
+        // ID is expected to be the vanilla tree ID (e.g., "minecraft:oak")
+        // or potentially just "oak" if passed from frontend
+        
+        String pathStr = id;
+        if (id.contains(":")) {
+            String[] parts = id.split(":");
+            if (parts.length == 2 && parts[0].equals("minecraft")) {
+                pathStr = parts[1];
+            }
         }
-        return config.replacers.stream()
-            .filter(r -> r.id.equals(id))
-            .findFirst()
-            .orElse(null);
+        
+        Path file = DATAPACK_ROOT.resolve("data").resolve("minecraft").resolve("worldgen").resolve("configured_feature").resolve(pathStr + ".json");
+        
+        if (Files.exists(file)) {
+            try {
+                return parseReplacerFile(file);
+            } catch (IOException e) {
+                TreeEngine.LOGGER.error("Failed to get replacer: " + id, e);
+            }
+        }
+        
+        return null;
     }
     
     /**
      * Save or update a tree replacer.
+     * Directly writes the datapack file.
      */
     public static void saveReplacer(TreeReplacer replacer) throws IOException {
-        if (config == null) {
-            init();
-        }
-        
-        // Remove existing replacer with same ID
-        config.replacers.removeIf(r -> r.id.equals(replacer.id));
-        
-        // Add new replacer
-        config.replacers.add(replacer);
-        
-        // Save config
-        save();
-        
         // Generate datapack file
         generateDatapackFile(replacer);
     }
     
     /**
      * Delete a tree replacer.
+     * Directly deletes the datapack file.
      */
     public static void delete(String id) throws IOException {
-        if (config == null) {
-            init();
-        }
-        
-        TreeReplacer replacer = get(id);
-        if (replacer != null) {
-            // Remove from config
-            config.replacers.removeIf(r -> r.id.equals(id));
-            save();
-            
-            // Delete datapack file
-            deleteDatapackFile(replacer.vanilla_tree_id);
-        }
-    }
-    
-    /**
-     * Save the configuration file.
-     */
-    private static void save() throws IOException {
-        Files.createDirectories(CONFIG_FILE.getParent());
-        String json = GSON.toJson(config);
-        Files.writeString(CONFIG_FILE, json);
-    }
-    
-    /**
-     * Regenerate all datapack files.
-     */
-    public static void regenerateAll() throws IOException {
-        if (config == null) {
-            init();
-            return;
-        }
-        
-        for (TreeReplacer replacer : config.replacers) {
-            generateDatapackFile(replacer);
-        }
+        // ID is expected to be the vanilla tree ID
+        deleteDatapackFile(id);
     }
     
     /**
@@ -184,36 +233,24 @@ public class TreeReplacerManager {
         // Generate the configured feature JSON
         JsonObject feature = new JsonObject();
         
-        if (replacer.replacement_pool.size() == 1) {
-            // If only one tree in the pool, reference it directly
-            feature.addProperty("type", "minecraft:tree");
-            // Actually, we should just reference the custom feature directly
-            // We'll use a reference instead
-            feature.addProperty("type", "minecraft:reference");
-            feature.addProperty("feature", replacer.replacement_pool.get(0));
-        } else if (replacer.replacement_pool.size() > 1) {
-            // If multiple trees, use simple_random_selector
-            feature.addProperty("type", "minecraft:simple_random_selector");
-            
-            JsonObject configObj = new JsonObject();
-            JsonArray featuresArray = new JsonArray();
-            
-            // Equal chance for each tree in the pool
-            double chance = 1.0 / replacer.replacement_pool.size();
-            
-            for (String treeId : replacer.replacement_pool) {
-                JsonObject featureEntry = new JsonObject();
-                featureEntry.addProperty("feature", treeId);
-                featureEntry.addProperty("chance", chance);
-                featuresArray.add(featureEntry);
-            }
-            
-            configObj.add("features", featuresArray);
-            feature.add("config", configObj);
-        } else {
-            // Empty pool - this shouldn't happen, but handle it gracefully
+        if (replacer.replacement_pool.isEmpty()) {
             throw new IllegalArgumentException("Replacement pool cannot be empty");
         }
+
+        // Always use simple_random_selector, even for a single tree
+        feature.addProperty("type", "minecraft:simple_random_selector");
+        
+        JsonObject configObj = new JsonObject();
+        JsonArray featuresArray = new JsonArray();
+        
+        // For simple_random_selector, we just provide a list of PlacedFeatures (strings)
+        // It picks one with equal probability
+        for (String treeId : replacer.replacement_pool) {
+            featuresArray.add(treeId);
+        }
+        
+        configObj.add("features", featuresArray);
+        feature.add("config", configObj);
         
         // Write the file
         String json = GSON.toJson(feature);
@@ -228,7 +265,8 @@ public class TreeReplacerManager {
     private static void deleteDatapackFile(String vanillaTreeId) throws IOException {
         String[] parts = vanillaTreeId.split(":", 2);
         if (parts.length != 2) {
-            return;
+            // Try treating as path if no colon
+            parts = new String[]{"minecraft", vanillaTreeId};
         }
         
         String namespace = parts[0];

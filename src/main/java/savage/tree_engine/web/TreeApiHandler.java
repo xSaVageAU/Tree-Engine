@@ -234,29 +234,40 @@ public class TreeApiHandler implements HttpHandler {
         }
     }
 
+    private static final Path PLACED_FEATURE_DIR = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees", "data", "tree_engine", "worldgen", "placed_feature");
+
     private void handleSave(HttpExchange exchange) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
             JsonElement json = JsonParser.parseReader(reader);
             
-            // Validate that it's a valid ConfiguredFeature (optional but good practice)
-            // We can use the codec to check, but for now let's just ensure it's valid JSON
-            // and has a "type" field
             if (!json.isJsonObject() || !json.getAsJsonObject().has("type")) {
                 sendError(exchange, 400, "Invalid feature JSON: missing 'type' field");
                 return;
             }
 
-            String id = exchange.getRequestURI().getPath().split("/")[3]; // from /api/trees/{id}
+            String id = exchange.getRequestURI().getPath().split("/")[3];
             if (id == null || id.isEmpty()) {
                 id = "tree_" + System.currentTimeMillis();
             }
 
-            Path file = DATAPACK_DIR.resolve(id + ".json");
+            // 1. Save ConfiguredFeature
+            Path configFile = DATAPACK_DIR.resolve(id + ".json");
             Files.createDirectories(DATAPACK_DIR);
-
-            // Write the full JSON to file
-            try (java.io.FileWriter writer = new java.io.FileWriter(file.toFile())) {
+            try (java.io.FileWriter writer = new java.io.FileWriter(configFile.toFile())) {
                 GSON.toJson(json, writer);
+            }
+
+            // 2. Save PlacedFeature
+            // We need a PlacedFeature to be able to use this tree in a simple_random_selector (Tree Replacer)
+            Path placedFile = PLACED_FEATURE_DIR.resolve(id + ".json");
+            Files.createDirectories(PLACED_FEATURE_DIR);
+            
+            JsonObject placedFeature = new JsonObject();
+            placedFeature.addProperty("feature", "tree_engine:" + id);
+            placedFeature.add("placement", new com.google.gson.JsonArray()); // Empty placement rules
+            
+            try (java.io.FileWriter writer = new java.io.FileWriter(placedFile.toFile())) {
+                GSON.toJson(placedFeature, writer);
             }
 
             sendResponse(exchange, 200, "{\"id\": \"" + id + "\"}");
@@ -268,8 +279,19 @@ public class TreeApiHandler implements HttpHandler {
 
     private void handleDelete(HttpExchange exchange, String id) throws IOException {
         try {
-            Path file = DATAPACK_DIR.resolve(id + ".json");
-            if (Files.deleteIfExists(file)) {
+            boolean deleted = false;
+            
+            // Delete ConfiguredFeature
+            Path configFile = DATAPACK_DIR.resolve(id + ".json");
+            if (Files.deleteIfExists(configFile)) {
+                deleted = true;
+            }
+            
+            // Delete PlacedFeature
+            Path placedFile = PLACED_FEATURE_DIR.resolve(id + ".json");
+            Files.deleteIfExists(placedFile);
+
+            if (deleted) {
                 sendResponse(exchange, 200, "{\"success\": true}");
             } else {
                 sendError(exchange, 404, "Tree not found");
