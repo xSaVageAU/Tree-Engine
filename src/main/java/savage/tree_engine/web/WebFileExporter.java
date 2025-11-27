@@ -24,9 +24,14 @@ public class WebFileExporter {
         "js/components/editor-manager.js",
         "js/components/tree-browser.js",
         "js/components/tree-manager.js",
+        "js/components/tree-replacer.js",
         "js/components/ui.js",
         "js/services/api.js",
         "js/services/rendering.js",
+        "js/services/rendering/color-resolver.js",
+        "js/services/rendering/log-renderer.js",
+        "js/services/rendering/leaf-renderer.js",
+        "js/services/rendering/block-renderer.js",
         "js/utils/helpers.js",
         "forms/schema-form.js"
     };
