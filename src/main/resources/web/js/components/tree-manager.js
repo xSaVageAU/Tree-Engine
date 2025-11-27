@@ -87,12 +87,14 @@ class TreeManager {
     }
 
     showSettings(treeId, treeJson) {
-        // Hide library, show settings
+        // Hide library and replacers, show settings
         const librarySection = document.getElementById('library-section');
         const settingsPanel = document.getElementById('settings-panel');
+        const replacersPanel = document.getElementById('replacers-panel');
 
         librarySection.style.display = 'none';
         settingsPanel.style.display = 'flex';
+        replacersPanel.style.display = 'none';
 
         // Populate settings
         document.getElementById('tree_name').value = treeId;
@@ -116,6 +118,26 @@ class TreeManager {
 
         librarySection.style.display = 'flex';
         settingsPanel.style.display = 'none';
+    }
+
+    showReplacers() {
+        // Hide library and settings, show replacers
+        const librarySection = document.getElementById('library-section');
+        const settingsPanel = document.getElementById('settings-panel');
+        const replacersPanel = document.getElementById('replacers-panel');
+
+        librarySection.style.display = 'none';
+        settingsPanel.style.display = 'none';
+        replacersPanel.style.display = 'flex';
+    }
+
+    hideReplacers() {
+        // Show library, hide replacers
+        const librarySection = document.getElementById('library-section');
+        const replacersPanel = document.getElementById('replacers-panel');
+
+        librarySection.style.display = 'flex';
+        replacersPanel.style.display = 'none';
     }
 
     createNewTree() {

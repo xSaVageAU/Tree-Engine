@@ -22,8 +22,9 @@
         <div id="library-section" class="library-section">
             <div style="padding: 15px 15px 0 15px;">
                 <button id="btn-create-new" style="width: 100%; margin-bottom: 5px;">+ Create New Tree</button>
-                <button id="btn-import" class="secondary" style="width: 100%; margin-bottom: 10px;">Import Vanilla
+                <button id="btn-import" class="secondary" style="width: 100%; margin-bottom: 5px;">Import Vanilla
                     Tree</button>
+                <button id="btn-tree-replacers" class="secondary" style="width: 100%; margin-bottom: 10px;">Tree Replacers</button>
                 <input type="search" id="tree-search" placeholder="Search trees..." style="margin-bottom: 5px;">
             </div>
             <div id="tree-list">
@@ -89,6 +90,18 @@
                     <button id="btn-save" style="flex: 1;">Save Tree</button>
                     <button id="btn-delete" class="secondary" style="flex: 1;">Delete</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- TREE REPLACERS PANEL -->
+        <div id="replacers-panel" class="replacers-panel" style="display: none;">
+            <div class="settings-header">
+                <button id="btn-back-to-library-from-replacers" class="back-btn" title="Back to Library">← Back</button>
+                <h2>Tree Replacers</h2>
+            </div>
+            <div class="scroll-content">
+                <!-- Tree replacers content will go here -->
+                <p style="padding: 20px; color: #858585; text-align: center;">Tree Replacers feature coming soon...</p>
             </div>
         </div>
     </div>
