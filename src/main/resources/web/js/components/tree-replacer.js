@@ -111,15 +111,13 @@ class TreeReplacerUI {
     renderReplacerItem(replacer) {
         return `
             <div class="replacer-item" style="background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #333;">
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-                    <div>
-                        <h4 style="margin: 0 0 5px 0; color: #fff;">${this.getTreeDisplayName(replacer.vanilla_tree_id)}</h4>
-                        <p style="margin: 0; color: #858585; font-size: 12px;">${replacer.vanilla_tree_id}</p>
-                    </div>
-                    <div style="display: flex; gap: 5px;">
-                        <button id="edit-replacer-${replacer.id}" class="secondary" style="padding: 5px 10px; font-size: 12px;">Edit</button>
-                        <button id="delete-replacer-${replacer.id}" class="secondary" style="padding: 5px 10px; font-size: 12px;">Delete</button>
-                    </div>
+                <div style="margin-bottom: 10px;">
+                    <h4 style="margin: 0 0 5px 0; color: #fff;">${this.getTreeDisplayName(replacer.vanilla_tree_id)}</h4>
+                    <p style="margin: 0; color: #858585; font-size: 12px;">${replacer.vanilla_tree_id}</p>
+                </div>
+                <div style="display: flex; justify-content: center; gap: 5px; margin-bottom: 10px;">
+                    <button id="edit-replacer-${replacer.id}" class="secondary" style="padding: 5px 10px; font-size: 12px;">Edit</button>
+                    <button id="delete-replacer-${replacer.id}" class="secondary" style="padding: 5px 10px; font-size: 12px;">Delete</button>
                 </div>
                 <div style="color: #aaa; font-size: 13px;">
                     <strong>Replacement Pool (${replacer.replacement_pool.length}):</strong><br>
