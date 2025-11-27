@@ -32,6 +32,7 @@ public class WebFileExporter {
         "js/services/rendering/log-renderer.js",
         "js/services/rendering/leaf-renderer.js",
         "js/services/rendering/block-renderer.js",
+        "js/services/rendering/ground-renderer.js",
         "js/utils/helpers.js",
         "forms/schema-form.js"
     };

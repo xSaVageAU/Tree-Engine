@@ -113,6 +113,8 @@ function renderScene(blocks) {
             renderLogs(blockList, blockId, path);
         } else if (isLeaf) {
             renderLeaves(blockList, blockName, blockId, path, selectedBiome);
+        } else if (blockId === 'podzol' || blockId === 'mycelium' || blockId === 'grass_block') {
+            renderGroundBlocks(blockList, blockId, path);
         } else {
             renderGenericBlocks(blockList, blockName, blockId, path);
         }
