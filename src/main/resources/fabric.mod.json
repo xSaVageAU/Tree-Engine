@@ -1,15 +1,14 @@
 {
 	"schemaVersion": 1,
 	"id": "tree-engine",
-	"version": "${version}",
+	"version": "0.1.0-prototype",
 	"name": "Tree Engine",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "A powerful web-based tree editor for Minecraft. Create, edit, and replace vanilla trees with custom designs using an intuitive 3D preview interface. Features a live web editor on port 3000 with Monaco JSON editing, texture pack support, and datapack-first architecture.",
 	"authors": [
-		"Me!"
+		"xSaVageAU"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"sources": "https://github.com/xSaVageAU/Tree-Engine"
 	},
 	"license": "CC0-1.0",
 	"icon": "assets/tree-engine/icon.png",
