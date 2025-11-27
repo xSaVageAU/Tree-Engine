@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class MainConfig {
-    public String resource_pack = "default";
     public int server_port = 3000;
     public boolean dev_mode_enabled = false;
     public String source_path = "";

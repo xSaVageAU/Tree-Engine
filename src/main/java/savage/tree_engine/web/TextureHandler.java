@@ -29,12 +29,6 @@ public class TextureHandler implements HttpHandler {
         String packName = parts[2];
         String filename = parts[3];
         
-        // Get configured pack or use requested pack
-        String configuredPack = MainConfig.get().resource_pack;
-        if (!packName.equals("default") && !packName.equals(configuredPack)) {
-            TreeEngine.LOGGER.warn("Requested pack '{}' doesn't match configured pack '{}'", packName, configuredPack);
-        }
-        
         // Try to load texture
         byte[] textureData = loadTexture(packName, filename);
         
