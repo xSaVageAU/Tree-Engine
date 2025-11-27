@@ -40,5 +40,4 @@ replay_*.log
 *.jfr
 
 # ref files
-
 ref_tree_files/

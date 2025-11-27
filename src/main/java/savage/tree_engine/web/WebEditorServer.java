@@ -50,31 +50,8 @@ public class WebEditorServer {
     }
     
     private static void exportWebFiles() {
-        try {
-            Path webDir = savage.tree_engine.config.MainConfig.getWebDir();
-            java.nio.file.Files.createDirectories(webDir);
-            
-            // List of files to export
-            String[] files = {
-                "index.html",
-                "style.css",
-                "main.js",
-                "schema-form.js",
-                "tree-browser.js"
-            };
-            
-            for (String fileName : files) {
-                try (java.io.InputStream is = WebEditorServer.class.getClassLoader().getResourceAsStream("web/" + fileName)) {
-                    if (is != null) {
-                        Path target = webDir.resolve(fileName);
-                        java.nio.file.Files.copy(is, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
-            }
-            TreeEngine.LOGGER.info("Exported web files to: " + webDir.toAbsolutePath());
-        } catch (IOException e) {
-            TreeEngine.LOGGER.error("Failed to export web files", e);
-        }
+        Path webDir = savage.tree_engine.config.MainConfig.getWebDir();
+        WebFileExporter.exportFiles(webDir);
     }
     
     private static void startServer() {

@@ -1,9 +1,7 @@
-class TreeBrowser {
+class TreeManager {
     constructor() {
         this.trees = [];
         this.selectedTreeId = null;
-        this.monacoEditor = null;
-        this.isUpdatingEditor = false; // Flag to prevent auto-regeneration during programmatic updates
         this.init();
     }
 
@@ -17,62 +15,8 @@ class TreeBrowser {
             searchInput.addEventListener('input', (e) => this.filterTrees(e.target.value));
         }
 
-        // Initialize Monaco Editor
-        this.initMonacoEditor();
-
         // Initial state
         this.updateDeleteButtonState();
-    }
-
-    initMonacoEditor() {
-        // Load Monaco Editor
-        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
-
-        require(['vs/editor/editor.main'], () => {
-            this.monacoEditor = monaco.editor.create(document.getElementById('monaco-container'), {
-                value: '{}',
-                language: 'json',
-                theme: 'vs-dark',
-                automaticLayout: true,
-                minimap: { enabled: false },
-                fontSize: 13,
-                tabSize: 2,
-                insertSpaces: true
-            });
-
-            // Add auto-regeneration with debounce
-            let debounceTimer = null;
-            this.monacoEditor.onDidChangeModelContent(() => {
-                // Skip if we're programmatically updating the editor
-                if (this.isUpdatingEditor) {
-                    return;
-                }
-
-                // Clear existing timer
-                if (debounceTimer) {
-                    clearTimeout(debounceTimer);
-                }
-
-                // Set new timer for 500ms
-                debounceTimer = setTimeout(() => {
-                    try {
-                        const jsonText = this.monacoEditor.getValue();
-                        const parsedJson = JSON.parse(jsonText);
-
-                        // Update current tree JSON
-                        window.currentTreeJson = parsedJson;
-
-                        // Regenerate tree preview
-                        if (typeof generateTree === 'function') {
-                            generateTree();
-                        }
-                    } catch (e) {
-                        // Invalid JSON, don't regenerate
-                        console.log("Invalid JSON, skipping regeneration:", e.message);
-                    }
-                }, 500);
-            });
-        });
     }
 
     async loadTrees() {
@@ -155,12 +99,12 @@ class TreeBrowser {
         document.getElementById('tree_description').value = "";
 
         // Update Monaco editor content if it exists
-        if (this.monacoEditor) {
-            this.isUpdatingEditor = true;
-            this.monacoEditor.setValue(JSON.stringify(treeJson, null, 2));
+        if (window.editorManager && window.editorManager.monacoEditor) {
+            window.editorManager.isUpdatingEditor = true;
+            window.editorManager.monacoEditor.setValue(JSON.stringify(treeJson, null, 2));
             // Reset flag after a short delay to allow the change event to process
             setTimeout(() => {
-                this.isUpdatingEditor = false;
+                window.editorManager.isUpdatingEditor = false;
             }, 100);
         }
     }
@@ -172,39 +116,6 @@ class TreeBrowser {
 
         librarySection.style.display = 'flex';
         settingsPanel.style.display = 'none';
-    }
-
-    openJsonEditor() {
-        const bottomPanel = document.getElementById('bottom-panel');
-        bottomPanel.classList.add('open');
-
-        // Ensure Monaco editor has the current tree JSON
-        if (this.monacoEditor && window.currentTreeJson) {
-            this.isUpdatingEditor = true;
-            this.monacoEditor.setValue(JSON.stringify(window.currentTreeJson, null, 2));
-            // Reset flag after a short delay to allow the change event to process
-            setTimeout(() => {
-                this.isUpdatingEditor = false;
-            }, 100);
-        }
-    }
-
-    closeJsonEditor() {
-        const bottomPanel = document.getElementById('bottom-panel');
-        bottomPanel.classList.remove('open');
-
-        // Sync changes from Monaco back to currentTreeJson
-        if (this.monacoEditor) {
-            try {
-                const jsonText = this.monacoEditor.getValue();
-                window.currentTreeJson = JSON.parse(jsonText);
-            } catch (e) {
-                console.error("Invalid JSON in Monaco editor:", e);
-                alert("Invalid JSON in editor. Please fix errors before closing.");
-                // Re-open the panel
-                bottomPanel.classList.add('open');
-            }
-        }
     }
 
     createNewTree() {
@@ -265,9 +176,9 @@ class TreeBrowser {
 
         // Get current JSON from Monaco editor if it's open
         const bottomPanel = document.getElementById('bottom-panel');
-        if (bottomPanel.classList.contains('open') && this.monacoEditor) {
+        if (bottomPanel.classList.contains('open') && window.editorManager && window.editorManager.monacoEditor) {
             try {
-                const jsonText = this.monacoEditor.getValue();
+                const jsonText = window.editorManager.monacoEditor.getValue();
                 window.currentTreeJson = JSON.parse(jsonText);
             } catch (e) {
                 alert("Invalid JSON in editor. Cannot save.");
@@ -470,17 +381,3 @@ class TreeBrowser {
         }
     }
 }
-
-window.addEventListener('DOMContentLoaded', () => {
-    treeBrowser = new TreeBrowser();
-    window.treeBrowser = treeBrowser; // Expose to global scope
-
-    // Bind buttons
-    document.getElementById('btn-save')?.addEventListener('click', () => treeBrowser.saveCurrentTree());
-    document.getElementById('btn-delete')?.addEventListener('click', () => treeBrowser.deleteSelected());
-    document.getElementById('btn-create-new')?.addEventListener('click', () => treeBrowser.createNewTree());
-    document.getElementById('btn-import')?.addEventListener('click', () => treeBrowser.openImportModal());
-    document.getElementById('btn-edit-json')?.addEventListener('click', () => treeBrowser.openJsonEditor());
-    document.getElementById('btn-close-editor')?.addEventListener('click', () => treeBrowser.closeJsonEditor());
-    document.getElementById('btn-back-to-library')?.addEventListener('click', () => treeBrowser.hideSettings());
-});
