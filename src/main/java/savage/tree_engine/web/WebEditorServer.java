@@ -56,14 +56,23 @@ public class WebEditorServer {
     
     private static void startServer() {
         try {
-            server = HttpServer.create(new InetSocketAddress(3000), 0);
+            int port = savage.tree_engine.config.MainConfig.get().server_port;
+            server = HttpServer.create(new InetSocketAddress(port), 0);
             server.createContext("/", new StaticHandler());
             server.createContext("/api/generate", new GenerateHandler());
             server.createContext("/api/", new TreeApiHandler(minecraftServer));
             server.createContext("/textures/", new TextureHandler());
             server.setExecutor(null); // creates a default executor
             server.start();
-            TreeEngine.LOGGER.info("Web Editor Server started on port 3000");
+            TreeEngine.LOGGER.info("Web Editor Server started on port " + port);
+            
+            if (savage.tree_engine.config.MainConfig.get().open_browser_on_start) {
+                try {
+                    net.minecraft.util.Util.getOperatingSystem().open("http://localhost:" + port);
+                } catch (Exception e) {
+                    TreeEngine.LOGGER.error("Failed to open browser", e);
+                }
+            }
         } catch (IOException e) {
             TreeEngine.LOGGER.error("Failed to start Web Editor Server", e);
         }
@@ -90,7 +99,19 @@ public class WebEditorServer {
                 return;
             }
             
-            Path webDir = savage.tree_engine.config.MainConfig.getWebDir();
+            Path webDir;
+            if (savage.tree_engine.config.MainConfig.get().dev_mode_enabled) {
+                String sourcePath = savage.tree_engine.config.MainConfig.get().source_path;
+                if (sourcePath != null && !sourcePath.isEmpty()) {
+                    webDir = Path.of(sourcePath);
+                } else {
+                    webDir = savage.tree_engine.config.MainConfig.getWebDir();
+                    TreeEngine.LOGGER.warn("Dev mode enabled but source_path is empty, falling back to internal web dir");
+                }
+            } else {
+                webDir = savage.tree_engine.config.MainConfig.getWebDir();
+            }
+            
             Path file = webDir.resolve(path.substring(1)); // Remove leading /
             
             if (!java.nio.file.Files.exists(file) || java.nio.file.Files.isDirectory(file)) {

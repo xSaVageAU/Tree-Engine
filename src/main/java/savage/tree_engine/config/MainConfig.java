@@ -10,6 +10,10 @@ import java.nio.file.Path;
 
 public class MainConfig {
     public String resource_pack = "default";
+    public int server_port = 3000;
+    public boolean dev_mode_enabled = false;
+    public String source_path = "";
+    public boolean open_browser_on_start = false;
     
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_DIR = Path.of("config", "tree_engine");
