@@ -36,13 +36,35 @@ public class WebEditorServer {
     private static MinecraftServer minecraftServer;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
+    public static void setMinecraftServer(MinecraftServer mcServer) {
+        minecraftServer = mcServer;
+    }
+
     public static void start(MinecraftServer mcServer) {
+        if (server != null) {
+            TreeEngine.LOGGER.warn("Web Editor Server is already running!");
+            return;
+        }
+        
         minecraftServer = mcServer;
         exportWebFiles();
         startServer();
     }
     
+    public static boolean isRunning() {
+        return server != null;
+    }
+    
+    public static int getPort() {
+        return savage.tree_engine.config.MainConfig.get().server_port;
+    }
+    
     public static void reload() {
+        if (server == null) {
+            TreeEngine.LOGGER.warn("Cannot reload: Web Editor Server is not running");
+            return;
+        }
+        
         TreeEngine.LOGGER.info("Reloading Web Editor Server...");
         stop();
         startServer();

@@ -25,11 +25,12 @@ public class TreeEngine implements ModInitializer {
         
         // Register server lifecycle events
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTING.register(server -> {
-            // Start web editor
-            savage.tree_engine.web.WebEditorServer.start(server);
+            // Store server reference for web editor (doesn't auto-start)
+            savage.tree_engine.web.WebEditorServer.setMinecraftServer(server);
         });
         
         net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            // Auto-stop web server on shutdown for cleanup
             savage.tree_engine.web.WebEditorServer.stop();
         });
     }
