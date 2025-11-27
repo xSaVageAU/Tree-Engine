@@ -46,7 +46,51 @@ function setupUI() {
         debouncedGenerate();
     });
 
+    // Resource pack selector
+    const resourcePackSelect = document.getElementById('resource_pack');
+    if (resourcePackSelect) {
+        resourcePackSelect.addEventListener('change', () => {
+            debouncedGenerate();
+        });
+        loadTexturePacks();
+    }
+
     // Helper to trigger rotation
     document.getElementById('btn_rotate')?.addEventListener('click', toggleRotation);
     document.getElementById('btn_reset_camera')?.addEventListener('click', resetCamera);
+}
+
+async function loadTexturePacks() {
+    const select = document.getElementById('resource_pack');
+    if (!select) return;
+
+    const packs = await fetchTexturePacks();
+
+    // Clear existing options (except maybe a loading one if we added it)
+    select.innerHTML = '';
+
+    if (packs.length === 0) {
+        const option = document.createElement('option');
+        option.value = 'default';
+        option.textContent = 'Default';
+        select.appendChild(option);
+        return;
+    }
+
+    packs.forEach(pack => {
+        const option = document.createElement('option');
+        option.value = pack;
+        option.textContent = pack;
+        select.appendChild(option);
+    });
+
+    // Try to select 'minecraft-assets-1.21.10' if it exists, otherwise the first one
+    // Or maybe we should store the last selected one in localStorage?
+    // For now, let's just default to the first one or a specific one if found.
+    const preferred = 'minecraft-assets-1.21.10';
+    if (packs.includes(preferred)) {
+        select.value = preferred;
+    } else if (packs.length > 0) {
+        select.value = packs[0];
+    }
 }

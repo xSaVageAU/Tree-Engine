@@ -62,6 +62,7 @@ public class WebEditorServer {
             server.createContext("/api/generate", new GenerateHandler());
             server.createContext("/api/", new TreeApiHandler(minecraftServer));
             server.createContext("/textures/", new TextureHandler());
+            server.createContext("/api/texture-packs", new TexturePacksHandler());
             server.setExecutor(null); // creates a default executor
             server.start();
             TreeEngine.LOGGER.info("Web Editor Server started on port " + port);

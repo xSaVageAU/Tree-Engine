@@ -91,3 +91,14 @@ async function generateTree() {
         if (btn) btn.disabled = false;
     }
 }
+
+async function fetchTexturePacks() {
+    try {
+        const response = await fetch('/api/texture-packs');
+        if (!response.ok) throw new Error("Failed to fetch texture packs");
+        return await response.json();
+    } catch (error) {
+        console.error("Error fetching texture packs:", error);
+        return ["default"];
+    }
+}
