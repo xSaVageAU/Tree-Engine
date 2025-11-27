@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "tree-engine",
-	"version": "0.1.0-prototype",
+	"version": "${version}",
 	"name": "Tree Engine",
 	"description": "A powerful web-based tree editor for Minecraft. Create, edit, and replace vanilla trees with custom designs using an intuitive 3D preview interface. Features a live web editor on port 3000 with Monaco JSON editing, texture pack support, and datapack-first architecture.",
 	"authors": [
