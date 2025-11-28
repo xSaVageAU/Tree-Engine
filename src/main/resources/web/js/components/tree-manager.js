@@ -200,6 +200,12 @@ class TreeManager {
             return;
         }
 
+        // Validate name (alphanumeric and underscores only)
+        if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+            alert("Tree name can only contain letters, numbers, and underscores.");
+            return;
+        }
+
         // Get current JSON from Monaco editor if it's open
         const bottomPanel = document.getElementById('bottom-panel');
         if (bottomPanel.classList.contains('open') && window.editorManager && window.editorManager.monacoEditor) {
@@ -214,11 +220,16 @@ class TreeManager {
 
         let fullJson = window.currentTreeJson || { type: "minecraft:tree", config: {} };
 
-        // Set ID
-        fullJson.id = this.selectedTreeId || name.toLowerCase().replace(/ /g, '_');
+        // Remove 'id' field if it exists in the JSON (it shouldn't be saved)
+        if (fullJson.id) {
+            delete fullJson.id;
+        }
+
+        // Use the name from the input as the ID
+        const newId = name.toLowerCase();
 
         try {
-            const response = await fetch(`/api/trees/${fullJson.id}`, {
+            const response = await fetch(`/api/trees/${newId}`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
                 body: JSON.stringify(fullJson)

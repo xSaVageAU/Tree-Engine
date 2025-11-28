@@ -297,6 +297,12 @@ public class TreeApiHandler implements HttpHandler {
             // 1. Save ConfiguredFeature
             Path configFile = DATAPACK_DIR.resolve(id + ".json");
             Files.createDirectories(DATAPACK_DIR);
+            
+            // Remove 'id' field if present (cleanup)
+            if (json.isJsonObject() && json.getAsJsonObject().has("id")) {
+                json.getAsJsonObject().remove("id");
+            }
+            
             try (java.io.FileWriter writer = new java.io.FileWriter(configFile.toFile())) {
                 GSON.toJson(json, writer);
             }
