@@ -154,6 +154,10 @@ class TreeManager {
                 type: "minecraft:simple_state_provider",
                 state: { Name: "minecraft:oak_log" }
             },
+            dirt_provider: {
+                type: "minecraft:simple_state_provider",
+                state: { Name: "minecraft:dirt" }
+            },
             foliage_provider: {
                 type: "minecraft:simple_state_provider",
                 state: { Name: "minecraft:oak_leaves" }
