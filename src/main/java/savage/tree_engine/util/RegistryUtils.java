@@ -101,15 +101,33 @@ public class RegistryUtils {
     public static boolean updateReplacerInRegistry(MinecraftServer server, TreeReplacerManager.TreeReplacer replacer) {
         try {
             String replacerId = "minecraft:" + replacer.vanilla_tree_id.split(":")[1];
+            TreeEngine.LOGGER.info("Attempting to update replacer: {} -> registry ID: {}", replacer.vanilla_tree_id, replacerId);
+
             var registryManager = server.getRegistryManager();
             var registry = registryManager.getOrThrow(net.minecraft.registry.RegistryKeys.CONFIGURED_FEATURE);
 
             Identifier id = Identifier.of(replacerId);
 
+            // For replacers, we just check if the ID exists in the registry
+            // The user knows this is a valid tree ID that can be replaced
+            var checkEntry = registry.getEntry(id);
+            boolean existsInRegistry = checkEntry.isPresent();
+            TreeEngine.LOGGER.info("Does {} exist in registry? {}", replacerId, existsInRegistry);
+
+            if (!existsInRegistry) {
+                TreeEngine.LOGGER.warn("Replacer ID {} does not exist in registry - tracking for restart only", replacerId);
+                TreeEngine.activeReplacers.put(replacerId, replacer);
+                return false; // Not hot-reloadable yet
+            }
+
             // Check if replacer feature exists
             var existingEntry = registry.getEntry(id);
+            TreeEngine.LOGGER.info("Registry entry exists for {}: {}", replacerId, existingEntry.isPresent());
+
             if (existingEntry.isPresent()) {
                 ConfiguredFeature<?, ?> existingFeature = existingEntry.get().value();
+                TreeEngine.LOGGER.info("Existing feature type: {}", existingFeature.getClass().getName());
+                TreeEngine.LOGGER.info("Existing config type: {}", existingFeature.config().getClass().getName());
 
                 // Create new random selector feature
                 ConfiguredFeature<?, ?> newFeature = createRandomSelectorFeature(server, replacer.replacement_pool);
@@ -118,14 +136,19 @@ public class RegistryUtils {
                     return false;
                 }
 
-                // Modify the existing feature's config in-place
-                if (existingFeature.config() instanceof net.minecraft.world.gen.feature.RandomFeatureConfig existingConfig &&
-                    newFeature.config() instanceof net.minecraft.world.gen.feature.RandomFeatureConfig newConfig) {
+                TreeEngine.LOGGER.info("New feature type: {}", newFeature.getClass().getName());
+                TreeEngine.LOGGER.info("New config type: {}", newFeature.config().getClass().getName());
 
-                    modifyRandomFeatureConfig(existingConfig, newConfig);
+                // Try to modify the existing feature's config in-place
+                // Use reflection to modify regardless of exact type
+                try {
+                    TreeEngine.LOGGER.info("Attempting to modify config fields directly");
+                    modifyConfigFields(existingFeature.config(), newFeature.config());
                     TreeEngine.activeReplacers.put(replacerId, replacer);
                     TreeEngine.LOGGER.info("Hot-reloaded existing replacer: {}", replacerId);
                     return true;
+                } catch (Exception e) {
+                    TreeEngine.LOGGER.error("Failed to modify replacer config: {}", e.getMessage());
                 }
             }
 
@@ -137,6 +160,32 @@ public class RegistryUtils {
 
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to update replacer in registry: " + replacer.vanilla_tree_id, e);
+            return false;
+        }
+    }
+
+    /**
+     * Check if a given ID corresponds to a valid vanilla tree in the registry.
+     */
+    private static boolean isValidVanillaTreeId(MinecraftServer server, String treeId) {
+        try {
+            var registryManager = server.getRegistryManager();
+            var registry = registryManager.getOrThrow(net.minecraft.registry.RegistryKeys.CONFIGURED_FEATURE);
+
+            Identifier id = Identifier.of(treeId);
+            var entry = registry.getEntry(id);
+
+            if (entry.isPresent()) {
+                ConfiguredFeature<?, ?> feature = entry.get().value();
+                // Check if it's a tree-related feature
+                return feature.feature() instanceof net.minecraft.world.gen.feature.TreeFeature ||
+                       feature.feature() instanceof net.minecraft.world.gen.feature.RandomPatchFeature;
+            }
+
+            return false;
+
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Error checking if {} is a valid vanilla tree", treeId, e);
             return false;
         }
     }
@@ -163,6 +212,42 @@ public class RegistryUtils {
 
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to modify RandomFeatureConfig", e);
+        }
+    }
+
+    /**
+     * Modify any config object by copying fields from a source to a target.
+     * Uses reflection to copy all accessible fields.
+     */
+    private static void modifyConfigFields(Object targetConfig, Object sourceConfig) {
+        try {
+            if (targetConfig == null || sourceConfig == null) {
+                TreeEngine.LOGGER.warn("Config objects are null");
+                return;
+            }
+
+            if (!targetConfig.getClass().equals(sourceConfig.getClass())) {
+                TreeEngine.LOGGER.warn("Config types don't match: {} vs {}", targetConfig.getClass().getName(), sourceConfig.getClass().getName());
+                return;
+            }
+
+            var fields = targetConfig.getClass().getDeclaredFields();
+
+            for (var field : fields) {
+                try {
+                    field.setAccessible(true);
+                    Object newValue = field.get(sourceConfig);
+                    field.set(targetConfig, newValue);
+                    TreeEngine.LOGGER.debug("Modified field: {}", field.getName());
+                } catch (Exception e) {
+                    TreeEngine.LOGGER.warn("Failed to modify field {}: {}", field.getName(), e.getMessage());
+                }
+            }
+
+            TreeEngine.LOGGER.info("Successfully modified config fields in-place");
+
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to modify config fields", e);
         }
     }
 
