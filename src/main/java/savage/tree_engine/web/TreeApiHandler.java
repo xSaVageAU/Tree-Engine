@@ -29,6 +29,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import savage.tree_engine.web.PathValidator;
 
 public class TreeApiHandler implements HttpHandler {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -108,8 +109,8 @@ public class TreeApiHandler implements HttpHandler {
                 sendError(exchange, 404, "Not found");
             }
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("API Error", e);
-            sendError(exchange, 500, "Internal Server Error: " + e.getMessage());
+            TreeEngine.LOGGER.error("API Error: {}", exchange.getRequestURI().getPath(), e);
+            sendResponse(exchange, 500, "{\"error\":\"Internal server error\"}");
         }
     }
 
@@ -149,7 +150,7 @@ public class TreeApiHandler implements HttpHandler {
             sendResponse(exchange, 200, json);
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to list vanilla trees", e);
-            sendError(exchange, 500, "Failed to list trees: " + e.getMessage());
+            sendResponse(exchange, 500, "{\"error\":\"Failed to list trees\"}");
         }
     }
 
@@ -191,8 +192,8 @@ public class TreeApiHandler implements HttpHandler {
             sendResponse(exchange, 200, json.toString());
 
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to fetch tree from registry: " + treeId, e);
-            sendError(exchange, 500, "Failed to fetch tree: " + e.getMessage());
+            TreeEngine.LOGGER.error("Failed to fetch tree from registry: {}", treeId, e);
+            sendResponse(exchange, 500, "{\"error\":\"Failed to fetch tree\"}");
         }
     }
 
@@ -209,21 +210,37 @@ public class TreeApiHandler implements HttpHandler {
             sendResponse(exchange, 200, json);
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to list trees", e);
-            sendError(exchange, 500, "Failed to list trees");
+            sendResponse(exchange, 500, "{\"error\":\"Failed to list trees\"}");
         }
     }
 
     private void handleGet(HttpExchange exchange, String id) throws IOException {
+        // Validate tree ID
+        if (!InputValidator.isValidTreeId(id)) {
+            sendResponse(exchange, 400, "{\"error\":\"Invalid tree ID\"}");
+            TreeEngine.LOGGER.warn("Invalid tree ID attempted: {}", id);
+            return;
+        }
+
         try {
-            Path file = DATAPACK_DIR.resolve(id + ".json");
+            // Safely resolve the file path
+            Path file;
+            try {
+                file = PathValidator.resolveSafePath(id + ".json", DATAPACK_DIR);
+            } catch (SecurityException e) {
+                TreeEngine.LOGGER.warn("Path traversal attempt in tree GET: {}", id);
+                sendResponse(exchange, 400, "{\"error\":\"Invalid tree ID\"}");
+                return;
+            }
+
             if (!Files.exists(file)) {
                 sendError(exchange, 404, "Tree not found");
                 return;
             }
-            
+
             // Read raw JSON file to preserve full structure (wrappers, etc.)
             String jsonContent = Files.readString(file, StandardCharsets.UTF_8);
-            
+
             // Validate it's valid JSON
             try {
                 JsonParser.parseString(jsonContent);
@@ -234,8 +251,8 @@ public class TreeApiHandler implements HttpHandler {
 
             sendResponse(exchange, 200, jsonContent);
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to get tree: " + id, e);
-            sendError(exchange, 500, "Failed to get tree");
+            TreeEngine.LOGGER.error("Failed to get tree: {}", id, e);
+            sendResponse(exchange, 500, "{\"error\":\"Failed to load tree\"}");
         }
     }
 
@@ -243,14 +260,36 @@ public class TreeApiHandler implements HttpHandler {
 
     private void handleSave(HttpExchange exchange) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-            JsonElement json = JsonParser.parseReader(reader);
-            
+            // Read JSON as string first to validate size
+            StringBuilder jsonBuilder = new StringBuilder();
+            char[] buffer = new char[8192];
+            int read;
+            while ((read = reader.read(buffer)) != -1) {
+                jsonBuilder.append(buffer, 0, read);
+            }
+            String jsonString = jsonBuilder.toString();
+
+            // Validate JSON size
+            if (!InputValidator.isValidJsonSize(jsonString)) {
+                sendResponse(exchange, 413, "{\"error\":\"Payload too large\"}");
+                TreeEngine.LOGGER.warn("Oversized JSON payload rejected: {} bytes", jsonString.getBytes(StandardCharsets.UTF_8).length);
+                return;
+            }
+
+            JsonElement json = JsonParser.parseString(jsonString);
+
             if (!json.isJsonObject() || !json.getAsJsonObject().has("type")) {
                 sendError(exchange, 400, "Invalid feature JSON: missing 'type' field");
                 return;
             }
-
             String id = exchange.getRequestURI().getPath().split("/")[3];
+
+            // Validate tree ID
+            if (!InputValidator.isValidTreeId(id)) {
+                sendResponse(exchange, 400, "{\"error\":\"Invalid tree ID\"}");
+                TreeEngine.LOGGER.warn("Invalid tree ID in save attempt: {}", id);
+                return;
+            }
             if (id == null || id.isEmpty()) {
                 id = "tree_" + System.currentTimeMillis();
             }
@@ -296,20 +335,27 @@ public class TreeApiHandler implements HttpHandler {
             sendResponse(exchange, 200, "{\"id\": \"" + id + "\"}");
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to save tree", e);
-            sendError(exchange, 400, "Invalid JSON");
+            sendResponse(exchange, 400, "{\"error\":\"Failed to save tree\"}");
         }
     }
 
     private void handleDelete(HttpExchange exchange, String id) throws IOException {
+        // Validate tree ID
+        if (!InputValidator.isValidTreeId(id)) {
+            sendResponse(exchange, 400, "{\"error\":\"Invalid tree ID\"}");
+            TreeEngine.LOGGER.warn("Invalid tree ID in delete attempt: {}", id);
+            return;
+        }
+
         try {
             boolean deleted = false;
-            
+
             // Delete ConfiguredFeature
             Path configFile = DATAPACK_DIR.resolve(id + ".json");
             if (Files.deleteIfExists(configFile)) {
                 deleted = true;
             }
-            
+
             // Delete PlacedFeature
             Path placedFile = PLACED_FEATURE_DIR.resolve(id + ".json");
             Files.deleteIfExists(placedFile);
@@ -327,8 +373,8 @@ public class TreeApiHandler implements HttpHandler {
                 sendError(exchange, 404, "Tree not found");
             }
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to delete tree: " + id, e);
-            sendError(exchange, 500, "Failed to delete tree");
+            TreeEngine.LOGGER.error("Failed to delete tree: {}", id, e);
+            sendResponse(exchange, 500, "{\"error\":\"Failed to delete tree\"}");
         }
     }
 
@@ -339,7 +385,7 @@ public class TreeApiHandler implements HttpHandler {
             sendResponse(exchange, 200, json);
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to list tree replacers", e);
-            sendError(exchange, 500, "Failed to list tree replacers");
+            sendResponse(exchange, 500, "{\"error\":\"Failed to list replacers\"}");
         }
     }
 
@@ -353,8 +399,8 @@ public class TreeApiHandler implements HttpHandler {
             String json = GSON.toJson(replacer);
             sendResponse(exchange, 200, json);
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to get tree replacer: " + id, e);
-            sendError(exchange, 500, "Failed to get tree replacer");
+            TreeEngine.LOGGER.error("Failed to get tree replacer: {}", id, e);
+            sendResponse(exchange, 500, "{\"error\":\"Failed to load replacer\"}");
         }
     }
 
@@ -393,7 +439,7 @@ public class TreeApiHandler implements HttpHandler {
             sendResponse(exchange, 200, "{\"id\": \"" + replacer.id + "\"}");
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to save tree replacer", e);
-            sendError(exchange, 400, "Invalid JSON or failed to save: " + e.getMessage());
+            sendResponse(exchange, 400, "{\"error\":\"Failed to save replacer\"}");
         }
     }
 
@@ -416,8 +462,8 @@ public class TreeApiHandler implements HttpHandler {
 
             sendResponse(exchange, 200, "{\"success\": true}");
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to delete tree replacer: " + id, e);
-            sendError(exchange, 500, "Failed to delete tree replacer");
+            TreeEngine.LOGGER.error("Failed to delete tree replacer: {}", id, e);
+            sendResponse(exchange, 500, "{\"error\":\"Failed to delete replacer\"}");
         }
     }
 

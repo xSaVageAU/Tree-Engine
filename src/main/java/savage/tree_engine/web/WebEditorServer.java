@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import savage.tree_engine.web.PathValidator;
 
 public class WebEditorServer {
     private static HttpServer server;
@@ -125,8 +126,9 @@ public class WebEditorServer {
                 path = "/index.html";
             }
             
-            // Prevent directory traversal
-            if (path.contains("..")) {
+            // Check for path traversal attempts
+            if (PathValidator.containsTraversalSequence(path)) {
+                TreeEngine.LOGGER.warn("Path traversal attempt detected in static file request: {}", path);
                 send404(t);
                 return;
             }
@@ -144,7 +146,17 @@ public class WebEditorServer {
                 webDir = savage.tree_engine.config.MainConfig.getWebDir();
             }
             
-            Path file = webDir.resolve(path.substring(1)); // Remove leading /
+            // Resolve path safely
+            String requestedFile = path.substring(1); // Remove leading /
+            Path file;
+            try {
+                // Use resolveSafeRelativePath to allow subdirectories (css/main.css)
+                file = PathValidator.resolveSafeRelativePath(requestedFile, webDir);
+            } catch (SecurityException e) {
+                TreeEngine.LOGGER.warn("Security violation in static file request: {}", path);
+                send404(t);
+                return;
+            }
             
             if (!java.nio.file.Files.exists(file) || java.nio.file.Files.isDirectory(file)) {
                 send404(t);
@@ -158,7 +170,12 @@ public class WebEditorServer {
             
             byte[] bytes = java.nio.file.Files.readAllBytes(file);
             
+            // Security headers
             t.getResponseHeaders().set("Content-Type", mimeType);
+            t.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+            t.getResponseHeaders().set("X-Frame-Options", "DENY");
+            t.getResponseHeaders().set("X-XSS-Protection", "1; mode=block");
+            
             t.sendResponseHeaders(200, bytes.length);
             try (OutputStream os = t.getResponseBody()) {
                 os.write(bytes);
@@ -200,6 +217,10 @@ public class WebEditorServer {
                     // Send Response
                     t.getResponseHeaders().set("Content-Type", "application/json");
                     t.getResponseHeaders().set("Access-Control-Allow-Origin", "*"); // CORS for dev
+                    t.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+                    t.getResponseHeaders().set("X-Frame-Options", "DENY");
+                    t.getResponseHeaders().set("X-XSS-Protection", "1; mode=block");
+                    
                     byte[] bytes = jsonResponse.getBytes(StandardCharsets.UTF_8);
                     t.sendResponseHeaders(200, bytes.length);
                     OutputStream os = t.getResponseBody();
@@ -207,8 +228,8 @@ public class WebEditorServer {
                     os.close();
 
                 } catch (Exception e) {
-                    TreeEngine.LOGGER.error("Error generating tree", e);
-                    String error = "{\"error\": \"" + e.getMessage() + "\"}";
+                    TreeEngine.LOGGER.error("Tree generation failed", e);
+                    String error = "{\"error\": \"Failed to generate tree\"}";
                     t.sendResponseHeaders(500, error.length());
                     OutputStream os = t.getResponseBody();
                     os.write(error.getBytes());

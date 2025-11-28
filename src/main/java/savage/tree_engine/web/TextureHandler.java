@@ -13,6 +13,7 @@ import java.util.zip.ZipFile;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import savage.tree_engine.web.PathValidator;
 
 public class TextureHandler implements HttpHandler {
     @Override
@@ -29,11 +30,33 @@ public class TextureHandler implements HttpHandler {
         String packName = parts[2];
         String filename = parts[3];
         
+        // Validate pack name and filename for path traversal
+        if (PathValidator.containsTraversalSequence(packName) ||
+            PathValidator.containsTraversalSequence(filename)) {
+            TreeEngine.LOGGER.warn("Path traversal attempt detected in texture request: pack={}, file={}", packName, filename);
+            send404(exchange);
+            return;
+        }
+        
+        // Sanitize filename
+        String sanitizedFilename = PathValidator.sanitizeFileName(filename);
+        if (sanitizedFilename == null) {
+            TreeEngine.LOGGER.warn("Invalid filename in texture request: {}", filename);
+            send404(exchange);
+            return;
+        }
+        filename = sanitizedFilename;
+        
         // Try to load texture
         byte[] textureData = loadTexture(packName, filename);
         
         if (textureData != null) {
+            // Security headers
             exchange.getResponseHeaders().set("Content-Type", "image/png");
+            exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+            exchange.getResponseHeaders().set("X-Frame-Options", "DENY");
+            exchange.getResponseHeaders().set("X-XSS-Protection", "1; mode=block");
+            
             exchange.sendResponseHeaders(200, textureData.length);
             OutputStream os = exchange.getResponseBody();
             os.write(textureData);
