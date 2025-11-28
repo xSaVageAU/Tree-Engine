@@ -1,11 +1,26 @@
 package savage.tree_engine.command;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.serialization.DataResult;
+import net.minecraft.registry.RegistryOps;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
+import net.minecraft.world.gen.feature.ConfiguredFeature;
+import savage.tree_engine.TreeEngine;
+import savage.tree_engine.config.TreeReplacerManager;
+import savage.tree_engine.util.RegistryUtils;
 import savage.tree_engine.web.WebEditorServer;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.stream.Stream;
 
 public class TreeEngineCommand {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
@@ -34,7 +49,7 @@ public class TreeEngineCommand {
                 )
                 .then(CommandManager.literal("reload")
                     .requires(source -> source.hasPermissionLevel(2))
-                    .executes(TreeEngineCommand::webReload)  // Alias for web reload
+                    .executes(TreeEngineCommand::reloadTrees)
                 )
         );
     }
@@ -73,6 +88,10 @@ public class TreeEngineCommand {
         );
         context.getSource().sendFeedback(
             () -> Text.literal("§f/tree_engine web stop §7- Stop the web editor"),
+            false
+        );
+        context.getSource().sendFeedback(
+            () -> Text.literal("§f/tree_engine reload §7- Hot-reload all trees and replacers"),
             false
         );
         context.getSource().sendFeedback(
@@ -175,6 +194,70 @@ public class TreeEngineCommand {
         return 1;
     }
     
+    private static int reloadTrees(CommandContext<ServerCommandSource> context) {
+        try {
+            var server = context.getSource().getServer();
+
+            // Reload all custom trees from JSON files
+            reloadAllCustomTrees(server);
+
+            // Update all active replacers
+            reloadAllReplacers(server);
+
+            context.getSource().sendFeedback(
+                () -> Text.literal("§aTree Engine: All trees and replacers hot-reloaded!"),
+                true
+            );
+            return 1;
+        } catch (Exception e) {
+            context.getSource().sendError(
+                Text.literal("§cTree Engine: Reload failed: " + e.getMessage())
+            );
+            return 0;
+        }
+    }
+
+    private static void reloadAllCustomTrees(net.minecraft.server.MinecraftServer server) {
+        Path treeDir = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees",
+                                "data", "tree_engine", "worldgen", "configured_feature");
+
+        try (Stream<Path> files = Files.list(treeDir)) {
+            files.filter(p -> p.toString().endsWith(".json"))
+                 .forEach(file -> {
+                     try {
+                         String id = file.getFileName().toString().replace(".json", "");
+                         String json = Files.readString(file);
+                         JsonElement jsonElement = JsonParser.parseString(json);
+
+                         // Parse and register
+                         RegistryOps<JsonElement> ops = RegistryOps.of(com.mojang.serialization.JsonOps.INSTANCE,
+                             server.getRegistryManager());
+                         DataResult<ConfiguredFeature<?, ?>> result =
+                             ConfiguredFeature.CODEC.parse(ops, jsonElement);
+                         ConfiguredFeature<?, ?> feature = result.getOrThrow();
+
+                         RegistryUtils.registerFeatureDirectly(server, "tree_engine:" + id, feature);
+
+                     } catch (Exception e) {
+                         TreeEngine.LOGGER.error("Failed to reload tree: " + file, e);
+                     }
+                 });
+        } catch (IOException e) {
+            TreeEngine.LOGGER.error("Failed to scan tree directory", e);
+        }
+    }
+
+    private static void reloadAllReplacers(net.minecraft.server.MinecraftServer server) {
+        List<TreeReplacerManager.TreeReplacer> replacers = TreeReplacerManager.getAll();
+        for (TreeReplacerManager.TreeReplacer replacer : replacers) {
+            try {
+                RegistryUtils.updateReplacerInRegistry(server, replacer);
+            } catch (Exception e) {
+                TreeEngine.LOGGER.error("Failed to reload replacer: " + replacer.vanilla_tree_id, e);
+            }
+        }
+    }
+
     private static int reload(CommandContext<ServerCommandSource> context) {
         WebEditorServer.reload();
         context.getSource().sendFeedback(

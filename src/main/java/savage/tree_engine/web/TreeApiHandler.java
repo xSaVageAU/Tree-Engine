@@ -9,6 +9,7 @@ import com.mojang.serialization.DataResult;
 import com.mojang.serialization.JsonOps;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import net.minecraft.registry.RegistryOps;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.Identifier;
 import net.minecraft.world.gen.feature.ConfiguredFeature;
@@ -16,6 +17,7 @@ import net.minecraft.world.gen.feature.TreeFeatureConfig;
 import savage.tree_engine.TreeEngine;
 import savage.tree_engine.config.TreeConfigManager;
 import savage.tree_engine.config.TreeReplacerManager;
+import savage.tree_engine.util.RegistryUtils;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -96,6 +98,9 @@ public class TreeApiHandler implements HttpHandler {
                         else if ("DELETE".equals(method)) handleDeleteReplacer(exchange, id);
                         else sendError(exchange, 405, "Method not allowed");
                     }
+                } else if ("hot-reload".equals(endpoint)) {
+                    if ("POST".equals(method)) handleHotReload(exchange);
+                    else sendError(exchange, 405, "Method not allowed");
                 } else {
                     sendError(exchange, 404, "Not found");
                 }
@@ -270,6 +275,24 @@ public class TreeApiHandler implements HttpHandler {
                 GSON.toJson(placedFeature, writer);
             }
 
+            // 3. Register directly in registry for hot reloading
+            try {
+                RegistryOps<JsonElement> ops = RegistryOps.of(JsonOps.INSTANCE, minecraftServer.getRegistryManager());
+                DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, json);
+                ConfiguredFeature<?, ?> feature = result.getOrThrow(s -> new RuntimeException("Parse failed: " + s));
+
+                String featureId = "tree_engine:" + id;
+                boolean registered = RegistryUtils.registerFeatureDirectly(minecraftServer, featureId, feature);
+
+                if (registered) {
+                    TreeEngine.LOGGER.info("Hot-reloaded tree: {}", featureId);
+                } else {
+                    TreeEngine.LOGGER.warn("Failed to hot-reload tree: {} - continuing with file-only save", featureId);
+                }
+            } catch (Exception e) {
+                TreeEngine.LOGGER.warn("Failed to register tree directly: {} - continuing with file-only save", id, e);
+            }
+
             sendResponse(exchange, 200, "{\"id\": \"" + id + "\"}");
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to save tree", e);
@@ -290,6 +313,13 @@ public class TreeApiHandler implements HttpHandler {
             // Delete PlacedFeature
             Path placedFile = PLACED_FEATURE_DIR.resolve(id + ".json");
             Files.deleteIfExists(placedFile);
+
+            // Remove from registry if present
+            String featureId = "tree_engine:" + id;
+            boolean removedFromRegistry = RegistryUtils.removeFeatureFromRegistry(minecraftServer, featureId);
+            if (removedFromRegistry) {
+                TreeEngine.LOGGER.info("Removed tree from registry: {}", featureId);
+            }
 
             if (deleted) {
                 sendResponse(exchange, 200, "{\"success\": true}");
@@ -347,6 +377,19 @@ public class TreeApiHandler implements HttpHandler {
             }
             
             TreeReplacerManager.saveReplacer(replacer);
+
+            // Update registry for hot reloading
+            try {
+                boolean updated = RegistryUtils.updateReplacerInRegistry(minecraftServer, replacer);
+                if (updated) {
+                    TreeEngine.LOGGER.info("Hot-reloaded replacer: {}", replacer.vanilla_tree_id);
+                } else {
+                    TreeEngine.LOGGER.warn("Failed to hot-reload replacer: {} - continuing with file-only save", replacer.vanilla_tree_id);
+                }
+            } catch (Exception e) {
+                TreeEngine.LOGGER.warn("Failed to update replacer in registry: {} - continuing with file-only save", replacer.vanilla_tree_id, e);
+            }
+
             sendResponse(exchange, 200, "{\"id\": \"" + replacer.id + "\"}");
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to save tree replacer", e);
@@ -363,6 +406,14 @@ public class TreeApiHandler implements HttpHandler {
             }
             
             TreeReplacerManager.delete(id);
+
+            // Remove from registry if present
+            String replacerId = "minecraft:" + replacer.vanilla_tree_id.split(":")[1];
+            boolean removedFromRegistry = RegistryUtils.removeReplacerFromRegistry(minecraftServer, replacerId);
+            if (removedFromRegistry) {
+                TreeEngine.LOGGER.info("Removed replacer from registry: {}", replacerId);
+            }
+
             sendResponse(exchange, 200, "{\"success\": true}");
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to delete tree replacer: " + id, e);
@@ -377,6 +428,61 @@ public class TreeApiHandler implements HttpHandler {
         exchange.sendResponseHeaders(code, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
+        }
+    }
+
+    private void handleHotReload(HttpExchange exchange) throws IOException {
+        try {
+            // Reload all custom trees from JSON files
+            reloadAllCustomTrees();
+
+            // Update all active replacers
+            reloadAllReplacers();
+
+            sendResponse(exchange, 200, "{\"status\": \"reloaded\"}");
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to hot-reload", e);
+            sendError(exchange, 500, "Hot-reload failed: " + e.getMessage());
+        }
+    }
+
+    private void reloadAllCustomTrees() {
+        Path treeDir = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees",
+                                "data", "tree_engine", "worldgen", "configured_feature");
+
+        try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(treeDir, "*.json")) {
+            for (Path file : stream) {
+                try {
+                    String id = file.getFileName().toString().replace(".json", "");
+                    String json = Files.readString(file);
+                    JsonElement jsonElement = JsonParser.parseString(json);
+
+                    // Parse and register
+                    RegistryOps<JsonElement> ops = RegistryOps.of(com.mojang.serialization.JsonOps.INSTANCE,
+                        minecraftServer.getRegistryManager());
+                    DataResult<ConfiguredFeature<?, ?>> result =
+                        ConfiguredFeature.CODEC.parse(ops, jsonElement);
+                    ConfiguredFeature<?, ?> feature = result.getOrThrow();
+
+                    RegistryUtils.registerFeatureDirectly(minecraftServer, "tree_engine:" + id, feature);
+
+                } catch (Exception e) {
+                    TreeEngine.LOGGER.error("Failed to reload tree: " + file, e);
+                }
+            }
+        } catch (IOException e) {
+            TreeEngine.LOGGER.error("Failed to scan tree directory", e);
+        }
+    }
+
+    private void reloadAllReplacers() {
+        java.util.List<TreeReplacerManager.TreeReplacer> replacers = TreeReplacerManager.getAll();
+        for (TreeReplacerManager.TreeReplacer replacer : replacers) {
+            try {
+                RegistryUtils.updateReplacerInRegistry(minecraftServer, replacer);
+            } catch (Exception e) {
+                TreeEngine.LOGGER.error("Failed to reload replacer: " + replacer.vanilla_tree_id, e);
+            }
         }
     }
 

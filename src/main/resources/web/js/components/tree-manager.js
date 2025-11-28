@@ -227,7 +227,15 @@ class TreeManager {
                 await this.loadTrees();
                 this.renderTreeList();
                 this.updateDeleteButtonState();
-                alert('Tree saved!');
+
+                // Trigger hot reload
+                try {
+                    await fetch('/api/hot-reload', { method: 'POST' });
+                    alert('Tree saved and hot-reloaded!');
+                } catch (reloadError) {
+                    console.warn('Hot reload failed, but tree was saved:', reloadError);
+                    alert('Tree saved! (Hot reload failed)');
+                }
             } else {
                 const error = await response.text();
                 alert('Failed to save tree: ' + error);

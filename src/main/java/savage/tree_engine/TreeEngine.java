@@ -1,12 +1,20 @@
 package savage.tree_engine;
 
 import net.fabricmc.api.ModInitializer;
+import net.minecraft.world.gen.feature.ConfiguredFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class TreeEngine implements ModInitializer {
 	public static final String MOD_ID = "tree_engine";
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+
+	// Registry tracking for hot reloading
+	public static final Map<String, ConfiguredFeature<?, ?>> customTrees = new ConcurrentHashMap<>();
+	public static final Map<String, savage.tree_engine.config.TreeReplacerManager.TreeReplacer> activeReplacers = new ConcurrentHashMap<>();
 
 	@Override
     public void onInitialize() {

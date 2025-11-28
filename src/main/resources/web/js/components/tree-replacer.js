@@ -251,10 +251,17 @@ class TreeReplacerUI {
             this.currentReplacer = null;
             this.renderReplacersPanel();
 
+            // Trigger hot reload
+            try {
+                await fetch('/api/hot-reload', { method: 'POST' });
+            } catch (reloadError) {
+                console.warn('Hot reload failed, but replacer was saved:', reloadError);
+            }
+
             // Show success message
             const statusDiv = document.getElementById('status');
             if (statusDiv) {
-                statusDiv.textContent = 'Tree replacer saved successfully!';
+                statusDiv.textContent = 'Tree replacer saved and hot-reloaded!';
                 statusDiv.style.background = '#2a5a2a';
                 setTimeout(() => {
                     statusDiv.textContent = 'Ready';

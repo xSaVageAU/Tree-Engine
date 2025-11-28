@@ -42,3 +42,4 @@ replay_*.log
 # ref files
 ref_tree_files/
 src.zip
+src/reference_do_not_edit
