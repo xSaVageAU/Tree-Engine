@@ -14,6 +14,10 @@ public class MainConfig {
     public String source_path = "";
     public boolean open_browser_on_start = false;
     
+    // Authentication settings
+    public String auth_token = "";
+    public boolean auth_enabled = true;
+    
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_DIR = Path.of("config", "tree_engine");
     private static final Path CONFIG_FILE = CONFIG_DIR.resolve("config.json");

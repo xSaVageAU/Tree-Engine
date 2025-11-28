@@ -33,7 +33,9 @@ class TreeReplacerUI {
 
     async loadVanillaTrees() {
         try {
-            const response = await fetch('/api/vanilla_trees');
+            const response = await fetch('/api/vanilla_trees', {
+                headers: getAuthHeaders()
+            });
             this.vanillaTrees = await response.json();
         } catch (error) {
             console.error('Failed to load vanilla trees:', error);
@@ -42,7 +44,9 @@ class TreeReplacerUI {
 
     async loadCustomTrees() {
         try {
-            const response = await fetch('/api/trees');
+            const response = await fetch('/api/trees', {
+                headers: getAuthHeaders()
+            });
             this.customTrees = await response.json();
         } catch (error) {
             console.error('Failed to load custom trees:', error);
@@ -51,7 +55,9 @@ class TreeReplacerUI {
 
     async loadReplacers() {
         try {
-            const response = await fetch('/api/replacers');
+            const response = await fetch('/api/replacers', {
+                headers: getAuthHeaders()
+            });
             this.replacers = await response.json();
         } catch (error) {
             console.error('Failed to load tree replacers:', error);
@@ -235,9 +241,7 @@ class TreeReplacerUI {
         try {
             const response = await fetch('/api/replacers', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(this.currentReplacer)
             });
 
@@ -253,7 +257,10 @@ class TreeReplacerUI {
 
             // Trigger hot reload
             try {
-                await fetch('/api/hot-reload', { method: 'POST' });
+                await fetch('/api/hot-reload', {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
             } catch (reloadError) {
                 console.warn('Hot reload failed, but replacer was saved:', reloadError);
             }
@@ -281,7 +288,8 @@ class TreeReplacerUI {
 
         try {
             const response = await fetch(`/api/replacers/${id}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: getAuthHeaders()
             });
 
             if (!response.ok) {

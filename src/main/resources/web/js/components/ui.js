@@ -58,6 +58,9 @@ function setupUI() {
     // Helper to trigger rotation
     document.getElementById('btn_rotate')?.addEventListener('click', toggleRotation);
     document.getElementById('btn_reset_camera')?.addEventListener('click', resetCamera);
+
+    // Auth token UI
+    setupAuthTokenUI();
 }
 
 async function loadTexturePacks() {
@@ -93,4 +96,43 @@ async function loadTexturePacks() {
     } else if (packs.length > 0) {
         select.value = packs[0];
     }
+}
+
+function setupAuthTokenUI() {
+    const tokenInput = document.getElementById('auth-token-input');
+    const saveButton = document.getElementById('btn-save-token');
+    const statusDiv = document.getElementById('auth-status');
+
+    if (!tokenInput || !saveButton || !statusDiv) return;
+
+    // Load existing token on page load
+    const existingToken = getAuthToken();
+    if (existingToken) {
+        statusDiv.textContent = '✓ Token saved';
+        statusDiv.style.color = '#4a9a4a';
+    } else {
+        statusDiv.textContent = 'No token set - check console for token';
+        statusDiv.style.color = '#858585';
+    }
+
+    // Save token button
+    saveButton.addEventListener('click', () => {
+        const token = tokenInput.value.trim();
+        if (token) {
+            setAuthToken(token);
+            statusDiv.textContent = '✓ Token saved';
+            statusDiv.style.color = '#4a9a4a';
+            tokenInput.value = ''; // Clear input for security
+        } else {
+            statusDiv.textContent = 'Please enter a token';
+            statusDiv.style.color = '#ff6b6b';
+        }
+    });
+
+    // Allow Enter key to save
+    tokenInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            saveButton.click();
+        }
+    });
 }

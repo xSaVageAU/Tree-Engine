@@ -1,5 +1,23 @@
 // API service for tree generation and data extraction
 
+// Authentication token management
+function getAuthToken() {
+    return localStorage.getItem('tree_engine_auth_token') || '';
+}
+
+function setAuthToken(token) {
+    localStorage.setItem('tree_engine_auth_token', token);
+}
+
+function getAuthHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    const token = getAuthToken();
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+}
+
 // Helper function to recursively extract block types from complex feature JSON
 function extractBlockTypesFromFeature(json) {
     const blocks = { trunks: new Set(), foliage: new Set() };
@@ -73,9 +91,14 @@ async function generateTree() {
     try {
         const response = await fetch('/api/generate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify(featureJson)
         });
+
+        if (response.status === 401) {
+            throw new Error("Authentication required. Please enter your auth token in settings.");
+        }
+
         if (!response.ok) throw new Error("API Error: " + await response.text());
         let blocks = await response.json();
 
@@ -94,7 +117,9 @@ async function generateTree() {
 
 async function fetchTexturePacks() {
     try {
-        const response = await fetch('/api/texture-packs');
+        const response = await fetch('/api/texture-packs', {
+            headers: getAuthHeaders()
+        });
         if (!response.ok) throw new Error("Failed to fetch texture packs");
         return await response.json();
     } catch (error) {

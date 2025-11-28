@@ -78,13 +78,21 @@ public class WebEditorServer {
     
     private static void startServer() {
         try {
+            // Initialize authentication system
+            AuthenticationManager.initialize();
+            
             int port = savage.tree_engine.config.MainConfig.get().server_port;
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
+            
+            // Static files - no authentication required
             server.createContext("/", new StaticHandler());
-            server.createContext("/api/generate", new GenerateHandler());
-            server.createContext("/api/", new TreeApiHandler(minecraftServer));
             server.createContext("/textures/", new TextureHandler());
-            server.createContext("/api/texture-packs", new TexturePacksHandler());
+            
+            // API endpoints - authentication required
+            server.createContext("/api/generate", new AuthFilter(new GenerateHandler()));
+            server.createContext("/api/texture-packs", new AuthFilter(new TexturePacksHandler()));
+            server.createContext("/api/", new AuthFilter(new TreeApiHandler(minecraftServer)));
+            
             server.setExecutor(null); // creates a default executor
             server.start();
             TreeEngine.LOGGER.info("Web Editor Server started on port " + port);

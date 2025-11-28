@@ -21,7 +21,9 @@ class TreeManager {
 
     async loadTrees() {
         try {
-            const response = await fetch('/api/trees');
+            const response = await fetch('/api/trees', {
+                headers: getAuthHeaders()
+            });
             if (response.ok) {
                 this.trees = await response.json();
             }
@@ -61,7 +63,9 @@ class TreeManager {
         this.renderTreeList(); // Update selection UI
 
         try {
-            const response = await fetch(`/api/trees/${treeId}`);
+            const response = await fetch(`/api/trees/${treeId}`, {
+                headers: getAuthHeaders()
+            });
             if (response.ok) {
                 const treeJson = await response.json();
                 window.currentTreeJson = treeJson;
@@ -216,7 +220,7 @@ class TreeManager {
         try {
             const response = await fetch(`/api/trees/${fullJson.id}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(fullJson)
             });
 
@@ -230,7 +234,10 @@ class TreeManager {
 
                 // Trigger hot reload
                 try {
-                    await fetch('/api/hot-reload', { method: 'POST' });
+                    await fetch('/api/hot-reload', {
+                        method: 'POST',
+                        headers: getAuthHeaders()
+                    });
                     alert('Tree saved and hot-reloaded!');
                 } catch (reloadError) {
                     console.warn('Hot reload failed, but tree was saved:', reloadError);
@@ -255,7 +262,8 @@ class TreeManager {
 
         try {
             const response = await fetch(`/api/trees/${this.selectedTreeId}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: getAuthHeaders()
             });
 
             if (response.ok) {
@@ -316,7 +324,9 @@ class TreeManager {
         vanillaList.innerHTML = '<div style="padding: 20px; text-align: center; color: #858585;">Loading...</div>';
 
         try {
-            const response = await fetch('/api/vanilla_trees');
+            const response = await fetch('/api/vanilla_trees', {
+                headers: getAuthHeaders()
+            });
             if (response.ok) {
                 const trees = await response.json();
                 this.renderVanillaList(trees);
@@ -370,7 +380,9 @@ class TreeManager {
         vanillaList.innerHTML = '<div style="padding: 20px; text-align: center; color: #858585;">Importing...</div>';
 
         try {
-            const response = await fetch(`/api/vanilla_tree/${id}`);
+            const response = await fetch(`/api/vanilla_tree/${id}`, {
+                headers: getAuthHeaders()
+            });
 
             if (response.ok) {
                 const treeJson = await response.json();
