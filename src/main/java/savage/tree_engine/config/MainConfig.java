@@ -17,6 +17,7 @@ public class MainConfig {
     // Authentication settings
     public String auth_token = "";
     public boolean auth_enabled = true;
+    public boolean regenerate_token_on_restart = true;
     
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Path CONFIG_DIR = Path.of("config", "tree_engine");

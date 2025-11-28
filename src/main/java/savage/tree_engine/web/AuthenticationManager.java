@@ -15,16 +15,22 @@ public class AuthenticationManager {
     
     /**
      * Initialize authentication system.
-     * Generates a new token if one doesn't exist.
+     * Generates a new token if one doesn't exist or if regenerate_token_on_restart is enabled.
      */
     public static void initialize() {
         MainConfig config = MainConfig.get();
         
-        if (config.auth_token == null || config.auth_token.isEmpty()) {
+        // Generate new token if: no token exists OR regenerate_token_on_restart is enabled
+        if (config.auth_token == null || config.auth_token.isEmpty() || config.regenerate_token_on_restart) {
             String newToken = generateToken();
             config.auth_token = newToken;
             MainConfig.save();
-            TreeEngine.LOGGER.info("Generated new authentication token");
+            
+            if (config.regenerate_token_on_restart) {
+                TreeEngine.LOGGER.info("Regenerated authentication token (regenerate_token_on_restart=true)");
+            } else {
+                TreeEngine.LOGGER.info("Generated new authentication token");
+            }
         }
         
         if (config.auth_enabled) {
