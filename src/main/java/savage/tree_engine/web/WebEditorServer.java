@@ -112,6 +112,7 @@ public class WebEditorServer {
     public static void stop() {
         if (server != null) {
             server.stop(0);
+            server = null; // Clear the reference so isRunning() returns false
             TreeEngine.LOGGER.info("Web Editor Server stopped");
         }
     }
