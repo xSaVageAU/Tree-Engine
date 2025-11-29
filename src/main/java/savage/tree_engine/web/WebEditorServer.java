@@ -91,6 +91,7 @@ public class WebEditorServer {
             
             // API endpoints - authentication required
             server.createContext("/api/generate", new AuthFilter(new GenerateHandler()));
+            server.createContext("/api/benchmark", new AuthFilter(new BenchmarkHandler()));
             server.createContext("/api/texture-packs", new AuthFilter(new TexturePacksHandler()));
             server.createContext("/api/", new AuthFilter(new TreeApiHandler(minecraftServer)));
             
@@ -248,6 +249,103 @@ public class WebEditorServer {
             feature.generate(world, world.getChunkGenerator(), Random.create(), new BlockPos(0, 0, 0));
 
             return world.getPlacedBlocks();
+        }
+    }
+
+    static class BenchmarkHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange t) throws IOException {
+            if ("POST".equals(t.getRequestMethod())) {
+                try {
+                    InputStreamReader reader = new InputStreamReader(t.getRequestBody(), StandardCharsets.UTF_8);
+                    com.google.gson.JsonObject request = com.google.gson.JsonParser.parseReader(reader).getAsJsonObject();
+                    
+                    if (!request.has("feature")) {
+                        sendError(t, 400, "Missing 'feature' field");
+                        return;
+                    }
+
+                    int iterations = request.has("iterations") ? request.get("iterations").getAsInt() : 1000;
+                    if (iterations > 10000) iterations = 10000; // Cap at 10k to prevent abuse
+                    if (iterations < 1) iterations = 1;
+
+                    com.google.gson.JsonElement featureJson = request.get("feature");
+
+                    // Parse feature
+                    net.minecraft.registry.RegistryOps<com.google.gson.JsonElement> ops = net.minecraft.registry.RegistryOps.of(com.mojang.serialization.JsonOps.INSTANCE, minecraftServer.getRegistryManager());
+                    com.mojang.serialization.DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, featureJson);
+                    ConfiguredFeature<?, ?> feature = result.getOrThrow(s -> new RuntimeException("Failed to parse feature: " + s));
+
+                    // Run benchmark on main thread to be accurate to game performance
+                    final int finalIterations = iterations;
+                    CompletableFuture<BenchmarkResult> future = CompletableFuture.supplyAsync(() -> {
+                        return runBenchmark(feature, finalIterations);
+                    }, minecraftServer);
+
+                    BenchmarkResult resultData = future.join();
+                    String jsonResponse = GSON.toJson(resultData);
+
+                    t.getResponseHeaders().set("Content-Type", "application/json");
+                    byte[] bytes = jsonResponse.getBytes(StandardCharsets.UTF_8);
+                    t.sendResponseHeaders(200, bytes.length);
+                    try (OutputStream os = t.getResponseBody()) {
+                        os.write(bytes);
+                    }
+
+                } catch (Exception e) {
+                    TreeEngine.LOGGER.error("Benchmark failed", e);
+                    sendError(t, 500, "Benchmark failed: " + e.getMessage());
+                }
+            } else {
+                t.sendResponseHeaders(405, -1);
+            }
+        }
+
+        private BenchmarkResult runBenchmark(ConfiguredFeature<?, ?> feature, int iterations) {
+            // Warmup
+            for (int i = 0; i < 50; i++) {
+                PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager(), minecraftServer);
+                feature.generate(world, world.getChunkGenerator(), Random.create(), new BlockPos(0, 0, 0));
+            }
+
+            // Measurement
+            long startTime = System.nanoTime();
+            
+            for (int i = 0; i < iterations; i++) {
+                PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager(), minecraftServer);
+                feature.generate(world, world.getChunkGenerator(), Random.create(), new BlockPos(0, 0, 0));
+            }
+            
+            long endTime = System.nanoTime();
+            long totalTimeNs = endTime - startTime;
+            
+            double totalTimeMs = totalTimeNs / 1_000_000.0;
+            double avgTimeMs = totalTimeMs / iterations;
+            double treesPerSecond = iterations / (totalTimeMs / 1000.0);
+
+            return new BenchmarkResult(totalTimeMs, avgTimeMs, treesPerSecond, iterations);
+        }
+
+        private void sendError(HttpExchange t, int code, String message) throws IOException {
+            String json = "{\"error\": \"" + message + "\"}";
+            t.sendResponseHeaders(code, json.length());
+            try (OutputStream os = t.getResponseBody()) {
+                os.write(json.getBytes());
+            }
+        }
+
+        private static class BenchmarkResult {
+            double totalTimeMs;
+            double avgTimeMs;
+            double treesPerSecond;
+            int iterations;
+
+            public BenchmarkResult(double totalTimeMs, double avgTimeMs, double treesPerSecond, int iterations) {
+                this.totalTimeMs = totalTimeMs;
+                this.avgTimeMs = avgTimeMs;
+                this.treesPerSecond = treesPerSecond;
+                this.iterations = iterations;
+            }
         }
     }
 }

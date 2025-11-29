@@ -437,4 +437,98 @@ class TreeManager {
             vanillaList.innerHTML = originalContent; // Restore list on error
         }
     }
+
+    initBenchmark() {
+        const btn = document.getElementById('btn-benchmark');
+        if (btn) {
+            btn.onclick = () => this.openBenchmarkModal();
+        }
+
+        const runBtn = document.getElementById('btn-run-benchmark');
+        if (runBtn) {
+            runBtn.onclick = () => this.runBenchmark();
+        }
+    }
+
+    openBenchmarkModal() {
+        const modal = document.getElementById('benchmark-modal');
+        const results = document.getElementById('benchmark-results');
+
+        // Reset UI
+        results.style.display = 'none';
+        results.innerHTML = '';
+
+        modal.style.display = 'flex';
+    }
+
+    async runBenchmark() {
+        const iterationsInput = document.getElementById('benchmark-iterations');
+        const resultsDiv = document.getElementById('benchmark-results');
+        const runBtn = document.getElementById('btn-run-benchmark');
+
+        const iterations = parseInt(iterationsInput.value) || 1000;
+
+        // UI Loading State
+        runBtn.disabled = true;
+        runBtn.textContent = "Running...";
+        resultsDiv.style.display = 'block';
+        resultsDiv.innerHTML = '<div style="color: #ccc;">Running benchmark (' + iterations + ' iterations)...</div>';
+
+        try {
+            // Get current tree config
+            // Use editor content if available, otherwise currentTreeJson
+            let treeConfig = window.currentTreeJson;
+
+            if (window.editorManager && window.editorManager.monacoEditor) {
+                try {
+                    treeConfig = JSON.parse(window.editorManager.monacoEditor.getValue());
+                } catch (e) {
+                    // Ignore, use currentTreeJson
+                }
+            }
+
+            // Extract feature config (remove wrapper if present)
+            let feature = treeConfig;
+
+            const response = await fetch('/api/benchmark', {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({
+                    feature: feature,
+                    iterations: iterations
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                // Display Results
+                resultsDiv.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div style="background: #1e1e1e; padding: 10px; border-radius: 4px;">
+                            <div style="font-size: 11px; color: #858585;">Trees / Second</div>
+                            <div style="font-size: 18px; color: #4ec9b0; font-weight: bold;">${Math.round(data.treesPerSecond).toLocaleString()}</div>
+                        </div>
+                        <div style="background: #1e1e1e; padding: 10px; border-radius: 4px;">
+                            <div style="font-size: 11px; color: #858585;">Avg Time</div>
+                            <div style="font-size: 18px; color: #ce9178; font-weight: bold;">${data.avgTimeMs.toFixed(3)} ms</div>
+                        </div>
+                        <div style="background: #1e1e1e; padding: 10px; border-radius: 4px; grid-column: span 2;">
+                            <div style="font-size: 11px; color: #858585;">Total Time (${data.iterations} trees)</div>
+                            <div style="font-size: 14px; color: #dcdcaa;">${data.totalTimeMs.toFixed(1)} ms</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                const error = await response.text();
+                resultsDiv.innerHTML = `<div style="color: #f48771;">Error: ${error}</div>`;
+            }
+        } catch (e) {
+            console.error(e);
+            resultsDiv.innerHTML = `<div style="color: #f48771;">Error: ${e.message}</div>`;
+        } finally {
+            runBtn.disabled = false;
+            runBtn.textContent = "Run Benchmark";
+        }
+    }
 }

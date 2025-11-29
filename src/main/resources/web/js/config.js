@@ -1,5 +1,6 @@
 // Configuration constants
-const SKY_COLOR = new BABYLON.Color3.FromHexString("#8cb6fc");
+// Configuration constants
+const SKY_COLOR = (typeof BABYLON !== 'undefined') ? new BABYLON.Color3.FromHexString("#8cb6fc") : null;
 
 // Wiki Data
 const BIOME_COLORS = {

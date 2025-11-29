@@ -98,6 +98,7 @@
 
             <div id="action-panel" class="actions" style="flex-direction: column; gap: 10px;">
                 <button id="btn_generate" onclick="generateTree()">Regenerate Preview</button>
+                <button id="btn-benchmark" class="secondary" style="width: 100%;">⚡ Run Benchmark</button>
                 <div style="display: flex; gap: 10px;">
                     <button id="btn-save" style="flex: 1;">Save Tree</button>
                     <button id="btn-delete" class="secondary" style="flex: 1;">Delete</button>
@@ -126,6 +127,29 @@
                 style="margin-bottom: 10px; width: 100%;">
             <div id="vanilla-list" style="height: 300px; overflow-y: auto; margin-bottom: 10px;"></div>
             <button onclick="document.getElementById('import-modal').style.display='none'">Cancel</button>
+        </div>
+    </div>
+
+    <!-- BENCHMARK MODAL -->
+    <div id="benchmark-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 400px;">
+            <h3>Tree Performance Benchmark</h3>
+            <div id="benchmark-content">
+                <p>Run a performance test on this tree configuration?</p>
+                <div class="control-group">
+                    <label>Iterations</label>
+                    <input type="number" id="benchmark-iterations" value="1000" min="100" max="10000">
+                </div>
+                <div id="benchmark-results"
+                    style="margin-top: 15px; padding: 10px; background: #252526; border-radius: 4px; display: none;">
+                    <!-- Results go here -->
+                </div>
+            </div>
+            <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="btn-run-benchmark" style="background: #0e639c;">Run Benchmark</button>
+                <button onclick="document.getElementById('benchmark-modal').style.display='none'"
+                    class="secondary">Close</button>
+            </div>
         </div>
     </div>
 

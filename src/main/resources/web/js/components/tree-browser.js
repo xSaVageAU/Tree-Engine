@@ -18,4 +18,6 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-close-editor')?.addEventListener('click', () => editorManager.closeJsonEditor());
     document.getElementById('btn-back-to-library')?.addEventListener('click', () => treeManager.hideSettings());
     document.getElementById('btn-back-to-library-from-replacers')?.addEventListener('click', () => treeManager.hideReplacers());
+    document.getElementById('btn-benchmark')?.addEventListener('click', () => treeManager.openBenchmarkModal());
+    document.getElementById('btn-run-benchmark')?.addEventListener('click', () => treeManager.runBenchmark());
 });
