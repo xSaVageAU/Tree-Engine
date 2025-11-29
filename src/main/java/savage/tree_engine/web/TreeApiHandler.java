@@ -381,6 +381,35 @@ public class TreeApiHandler implements HttpHandler {
             }
 
             if (deleted) {
+                // CLEANUP: Remove this tree from any active replacers
+                String featureId = "tree_engine:" + id;
+                List<TreeReplacerManager.TreeReplacer> replacers = TreeReplacerManager.getAll();
+                
+                for (TreeReplacerManager.TreeReplacer replacer : replacers) {
+                    if (replacer.replacement_pool.contains(featureId)) {
+                        replacer.replacement_pool.remove(featureId);
+                        TreeEngine.LOGGER.info("Removed deleted tree {} from replacer {}", featureId, replacer.vanilla_tree_id);
+                        
+                        if (replacer.replacement_pool.isEmpty()) {
+                            // Replacer is now empty, delete it
+                            TreeReplacerManager.delete(replacer.vanilla_tree_id);
+                            TreeEngine.LOGGER.info("Replacer {} is now empty, deleting it", replacer.vanilla_tree_id);
+                            
+                            if (MainConfig.get().hot_reload_enabled) {
+                                String replacerId = "minecraft:" + replacer.vanilla_tree_id.split(":")[1];
+                                RegistryUtils.removeReplacerFromRegistry(minecraftServer, replacerId);
+                            }
+                        } else {
+                            // Replacer still has trees, update it
+                            TreeReplacerManager.saveReplacer(replacer);
+                            
+                            if (MainConfig.get().hot_reload_enabled) {
+                                RegistryUtils.updateReplacerInRegistry(minecraftServer, replacer);
+                            }
+                        }
+                    }
+                }
+
                 sendResponse(exchange, 200, "{\"success\": true}");
             } else {
                 sendError(exchange, 404, "Tree not found");
