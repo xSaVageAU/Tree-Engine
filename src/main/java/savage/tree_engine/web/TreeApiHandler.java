@@ -17,6 +17,7 @@ import net.minecraft.world.gen.feature.TreeFeatureConfig;
 import savage.tree_engine.TreeEngine;
 import savage.tree_engine.config.TreeConfigManager;
 import savage.tree_engine.config.TreeReplacerManager;
+import savage.tree_engine.config.MainConfig;
 import savage.tree_engine.util.RegistryUtils;
 
 import java.io.IOException;
@@ -321,21 +322,25 @@ public class TreeApiHandler implements HttpHandler {
             }
 
             // 3. Register directly in registry for hot reloading
-            try {
-                RegistryOps<JsonElement> ops = RegistryOps.of(JsonOps.INSTANCE, minecraftServer.getRegistryManager());
-                DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, json);
-                ConfiguredFeature<?, ?> feature = result.getOrThrow(s -> new RuntimeException("Parse failed: " + s));
+            if (MainConfig.get().hot_reload_enabled) {
+                try {
+                    RegistryOps<JsonElement> ops = RegistryOps.of(JsonOps.INSTANCE, minecraftServer.getRegistryManager());
+                    DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, json);
+                    ConfiguredFeature<?, ?> feature = result.getOrThrow(s -> new RuntimeException("Parse failed: " + s));
 
-                String featureId = "tree_engine:" + id;
-                boolean registered = RegistryUtils.registerFeatureDirectly(minecraftServer, featureId, feature);
+                    String featureId = "tree_engine:" + id;
+                    boolean registered = RegistryUtils.registerFeatureDirectly(minecraftServer, featureId, feature);
 
-                if (registered) {
-                    TreeEngine.LOGGER.info("Hot-reloaded tree: {}", featureId);
-                } else {
-                    TreeEngine.LOGGER.warn("Failed to hot-reload tree: {} - continuing with file-only save", featureId);
+                    if (registered) {
+                        TreeEngine.LOGGER.info("Hot-reloaded tree: {}", featureId);
+                    } else {
+                        TreeEngine.LOGGER.warn("Failed to hot-reload tree: {} - continuing with file-only save", featureId);
+                    }
+                } catch (Exception e) {
+                    TreeEngine.LOGGER.warn("Failed to register tree directly: {} - continuing with file-only save", id, e);
                 }
-            } catch (Exception e) {
-                TreeEngine.LOGGER.warn("Failed to register tree directly: {} - continuing with file-only save", id, e);
+            } else {
+                TreeEngine.LOGGER.info("Hot reload disabled. Changes saved to disk only.");
             }
 
             sendResponse(exchange, 200, "{\"id\": \"" + id + "\"}");
@@ -367,10 +372,12 @@ public class TreeApiHandler implements HttpHandler {
             Files.deleteIfExists(placedFile);
 
             // Remove from registry if present
-            String featureId = "tree_engine:" + id;
-            boolean removedFromRegistry = RegistryUtils.removeFeatureFromRegistry(minecraftServer, featureId);
-            if (removedFromRegistry) {
-                TreeEngine.LOGGER.info("Removed tree from registry: {}", featureId);
+            if (MainConfig.get().hot_reload_enabled) {
+                String featureId = "tree_engine:" + id;
+                boolean removedFromRegistry = RegistryUtils.removeFeatureFromRegistry(minecraftServer, featureId);
+                if (removedFromRegistry) {
+                    TreeEngine.LOGGER.info("Removed tree from registry: {}", featureId);
+                }
             }
 
             if (deleted) {
@@ -431,15 +438,19 @@ public class TreeApiHandler implements HttpHandler {
             TreeReplacerManager.saveReplacer(replacer);
 
             // Update registry for hot reloading
-            try {
-                boolean updated = RegistryUtils.updateReplacerInRegistry(minecraftServer, replacer);
-                if (updated) {
-                    TreeEngine.LOGGER.info("Hot-reloaded replacer: {}", replacer.vanilla_tree_id);
-                } else {
-                    TreeEngine.LOGGER.warn("Failed to hot-reload replacer: {} - continuing with file-only save", replacer.vanilla_tree_id);
+            if (MainConfig.get().hot_reload_enabled) {
+                try {
+                    boolean updated = RegistryUtils.updateReplacerInRegistry(minecraftServer, replacer);
+                    if (updated) {
+                        TreeEngine.LOGGER.info("Hot-reloaded replacer: {}", replacer.vanilla_tree_id);
+                    } else {
+                        TreeEngine.LOGGER.warn("Failed to hot-reload replacer: {} - continuing with file-only save", replacer.vanilla_tree_id);
+                    }
+                } catch (Exception e) {
+                    TreeEngine.LOGGER.warn("Failed to update replacer in registry: {} - continuing with file-only save", replacer.vanilla_tree_id, e);
                 }
-            } catch (Exception e) {
-                TreeEngine.LOGGER.warn("Failed to update replacer in registry: {} - continuing with file-only save", replacer.vanilla_tree_id, e);
+            } else {
+                TreeEngine.LOGGER.info("Hot reload disabled. Replacer saved to disk only.");
             }
 
             sendResponse(exchange, 200, "{\"id\": \"" + replacer.id + "\"}");
@@ -460,10 +471,12 @@ public class TreeApiHandler implements HttpHandler {
             TreeReplacerManager.delete(id);
 
             // Remove from registry if present
-            String replacerId = "minecraft:" + replacer.vanilla_tree_id.split(":")[1];
-            boolean removedFromRegistry = RegistryUtils.removeReplacerFromRegistry(minecraftServer, replacerId);
-            if (removedFromRegistry) {
-                TreeEngine.LOGGER.info("Removed replacer from registry: {}", replacerId);
+            if (MainConfig.get().hot_reload_enabled) {
+                String replacerId = "minecraft:" + replacer.vanilla_tree_id.split(":")[1];
+                boolean removedFromRegistry = RegistryUtils.removeReplacerFromRegistry(minecraftServer, replacerId);
+                if (removedFromRegistry) {
+                    TreeEngine.LOGGER.info("Removed replacer from registry: {}", replacerId);
+                }
             }
 
             sendResponse(exchange, 200, "{\"success\": true}");
@@ -484,6 +497,11 @@ public class TreeApiHandler implements HttpHandler {
     }
 
     private void handleHotReload(HttpExchange exchange) throws IOException {
+        if (!MainConfig.get().hot_reload_enabled) {
+            sendError(exchange, 400, "Hot reload is disabled in config");
+            return;
+        }
+
         try {
             // Reload all custom trees from JSON files
             reloadAllCustomTrees();
@@ -499,6 +517,8 @@ public class TreeApiHandler implements HttpHandler {
     }
 
     private void reloadAllCustomTrees() {
+        if (!MainConfig.get().hot_reload_enabled) return;
+
         Path treeDir = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees",
                                 "data", "tree_engine", "worldgen", "configured_feature");
 
@@ -528,6 +548,8 @@ public class TreeApiHandler implements HttpHandler {
     }
 
     private void reloadAllReplacers() {
+        if (!MainConfig.get().hot_reload_enabled) return;
+
         java.util.List<TreeReplacerManager.TreeReplacer> replacers = TreeReplacerManager.getAll();
         for (TreeReplacerManager.TreeReplacer replacer : replacers) {
             try {

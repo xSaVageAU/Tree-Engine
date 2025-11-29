@@ -18,6 +18,8 @@ public class MainConfig {
     public boolean auth_enabled = true;
     public boolean regenerate_token_on_restart = true;
     
+    public boolean hot_reload_enabled = true;
+    
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private static final Path CONFIG_DIR = Path.of("config", "tree_engine");
     private static final Path CONFIG_FILE = CONFIG_DIR.resolve("config.json");
@@ -75,7 +77,11 @@ public class MainConfig {
             sb.append("  // If auth_token is empty, a new one is generated on webserver startup\n");
             sb.append("  \"auth_token\": ").append(GSON.toJson(instance.auth_token)).append(",\n");
             sb.append("  \"auth_enabled\": ").append(instance.auth_enabled).append(",\n");
-            sb.append("  \"regenerate_token_on_restart\": ").append(instance.regenerate_token_on_restart).append("\n");
+            sb.append("  \"regenerate_token_on_restart\": ").append(instance.regenerate_token_on_restart).append(",\n");
+            
+            sb.append("\n  // Advanced Settings\n");
+            sb.append("  // Enable hot reloading of trees/replacers using reflection (experimental)\n");
+            sb.append("  \"hot_reload_enabled\": ").append(instance.hot_reload_enabled).append("\n");
             
             sb.append("}");
             
