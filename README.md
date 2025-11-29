@@ -8,7 +8,7 @@
 Unlike standard JSON editing, Tree Engine provides a **3D Web Editor** that runs the actual Minecraft generation logic in a "Phantom World" simulation, ensuring that what you see in the browser is exactly what will generate in the game.
 
 https://github.com/user-attachments/assets/dadb7aad-cf3f-4de2-a6cc-ff38f6b9474e
-## ✨ Key Features
+## Key Features
 
 *   **🌐 Web-Based Voxel Editor:** A locally hosted web interface (default port 3000) using **Babylon.js** for high-performance 3D rendering.
 *   **🔥 Hot Reloading:** Changes made in the web editor are injected directly into the running game registry using reflection. **No server restarts required.**
@@ -18,14 +18,14 @@ https://github.com/user-attachments/assets/dadb7aad-cf3f-4de2-a6cc-ff38f6b9474e
 *   **🎨 Texture Pack Support:** Drop resource packs into the config folder to visualize trees with your custom textures in the browser.
 *   **📝 Monaco JSON Editor:** Integrated VS Code-style editor for power users who want fine-grained control over feature configurations.
 
-## 📥 Installation
+## Installation
 
 1.  Install **Fabric Loader** for Minecraft 1.21.10.
 2.  Install **Fabric API**.
 3.  Drop the `tree-engine.jar` into your `mods` folder.
 4.  Launch the game/server.
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Start the Web Server
 Once in-game or via the server console, run:
@@ -50,7 +50,7 @@ a1b2c3d4e5... (your unique token)
 3.  The 3D preview will automatically regenerate using the game's engine.
 4.  Click **Save Tree** to write the file and hot-reload it into the game.
 
-## 🛠️ Tree Replacers
+## Tree Replacers
 
 Tree Engine allows you to replace vanilla trees without complex biome modification.
 
@@ -62,7 +62,7 @@ Tree Engine allows you to replace vanilla trees without complex biome modificati
 
 *The mod automatically generates a `simple_random_selector` that intercepts the vanilla feature ID, allowing your custom trees to spawn naturally in the world.*
 
-## 📂 Configuration & Resources
+## Configuration & Resources
 
 The mod creates a configuration folder at `config/tree_engine/`:
 
@@ -70,7 +70,7 @@ The mod creates a configuration folder at `config/tree_engine/`:
 *   **`textures/`**: Drop resource packs (zip or folder) here. Select them in the Web Editor to view your trees with correct textures.
 *   **`datapacks/tree_engine_trees/`**: This is where your actual work is saved. You can copy this folder to any world's `datapacks/` folder to ship your modpack.
 
-## 💻 Commands
+## Commands
 
 | Command | Description |
 | :--- | :--- |
@@ -80,12 +80,18 @@ The mod creates a configuration folder at `config/tree_engine/`:
 | `/tree_engine reload` | Manually hot-reloads all trees and replacers from disk. |
 | `/tree_engine web reload` | Reloads the web server frontend files (for dev mode). |
 
-## 🏗️ Technical Details
+## Technical Details
 
 *   **Backend:** Java (Fabric) using `com.sun.net.httpserver`.
 *   **Frontend:** Vanilla JS + Babylon.js + Monaco Editor.
 *   **Registry Injection:** Uses `RegistryUtils` to access private fields in `ConfiguredFeature` and `TreeFeatureConfig`, modifying them in-place to allow runtime updates without breaking registry references.
 
-## 📜 License
+## Development Notice
+
+This project is developed with significant assistance from AI coding tools (Google Gemini). While AI has been instrumental in writing much of the codebase, all code is reviewed, tested, and maintained by the project owner. 
+
+If you encounter any issues or have questions about the project, please feel free to open an issue on GitHub.
+
+## License
 
 This project is licensed under **CC0-1.0**.
