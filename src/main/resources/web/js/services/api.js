@@ -99,7 +99,27 @@ async function generateTree() {
             throw new Error("Authentication required. Please enter your auth token in settings.");
         }
 
-        if (!response.ok) throw new Error("API Error: " + await response.text());
+        if (!response.ok) {
+            // Try to parse JSON error
+            try {
+                const errorJson = await response.json();
+                if (errorJson.error) {
+                    let msg = errorJson.error;
+                    if (errorJson.details) {
+                        // Create a detailed error object
+                        const err = new Error(msg);
+                        err.details = errorJson.details;
+                        throw err;
+                    }
+                    throw new Error(msg);
+                }
+            } catch (e) {
+                // If parsing fails or it wasn't JSON, fall back to text
+                if (e instanceof Error && e.details) throw e; // Re-throw our detailed error
+                throw new Error("API Error: " + await response.text());
+            }
+        }
+
         let blocks = await response.json();
 
         // Filter out air blocks
@@ -109,7 +129,45 @@ async function generateTree() {
         if (status) status.textContent = `Generated ${blocks.length} blocks.`;
     } catch (error) {
         console.error(error);
-        if (status) status.textContent = 'Error: ' + error.message;
+        if (status) {
+            // Clear previous content
+            status.innerHTML = '';
+
+            const msgSpan = document.createElement('span');
+            msgSpan.style.color = '#f48771';
+            msgSpan.textContent = error.message;
+            status.appendChild(msgSpan);
+
+            if (error.details) {
+                const link = document.createElement('a');
+                link.href = '#';
+                link.textContent = ' (Show Details)';
+                link.style.color = '#4ec9b0';
+                link.style.fontSize = '11px';
+                link.style.marginLeft = '5px';
+
+                const detailsDiv = document.createElement('div');
+                detailsDiv.style.display = 'none';
+                detailsDiv.style.marginTop = '5px';
+                detailsDiv.style.fontSize = '11px';
+                detailsDiv.style.color = '#ccc';
+                detailsDiv.style.background = '#252526';
+                detailsDiv.style.padding = '5px';
+                detailsDiv.style.borderRadius = '3px';
+                detailsDiv.style.whiteSpace = 'pre-wrap';
+                detailsDiv.style.wordBreak = 'break-all';
+                detailsDiv.textContent = error.details;
+
+                link.onclick = (e) => {
+                    e.preventDefault();
+                    detailsDiv.style.display = 'block';
+                    link.style.display = 'none';
+                };
+
+                status.appendChild(link);
+                status.appendChild(detailsDiv);
+            }
+        }
     } finally {
         if (btn) btn.disabled = false;
     }

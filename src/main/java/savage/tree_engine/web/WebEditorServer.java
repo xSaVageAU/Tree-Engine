@@ -119,6 +119,22 @@ public class WebEditorServer {
         }
     }
 
+    private static void sendJsonError(HttpExchange t, int code, String message, String details) throws IOException {
+        com.google.gson.JsonObject json = new com.google.gson.JsonObject();
+        json.addProperty("error", message);
+        if (details != null) {
+            json.addProperty("details", details);
+        }
+        String response = GSON.toJson(json);
+        
+        t.getResponseHeaders().set("Content-Type", "application/json");
+        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+        t.sendResponseHeaders(code, bytes.length);
+        try (OutputStream os = t.getResponseBody()) {
+            os.write(bytes);
+        }
+    }
+
     static class StaticHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
@@ -230,11 +246,16 @@ public class WebEditorServer {
 
                 } catch (Exception e) {
                     TreeEngine.LOGGER.error("Tree generation failed", e);
-                    String error = "{\"error\": \"Failed to generate tree\"}";
-                    t.sendResponseHeaders(500, error.length());
-                    OutputStream os = t.getResponseBody();
-                    os.write(error.getBytes());
-                    os.close();
+                    String message = "Failed to generate tree";
+                    String details = e.getMessage();
+                    
+                    // Extract useful info from DataResult error
+                    if (e instanceof RuntimeException && e.getMessage().startsWith("Failed to parse feature:")) {
+                        message = "Invalid Tree Configuration";
+                        details = e.getMessage().substring("Failed to parse feature: ".length());
+                    }
+                    
+                    WebEditorServer.sendJsonError(t, 500, message, details);
                 }
             } else {
                 t.sendResponseHeaders(405, -1); // Method Not Allowed
@@ -261,7 +282,7 @@ public class WebEditorServer {
                     com.google.gson.JsonObject request = com.google.gson.JsonParser.parseReader(reader).getAsJsonObject();
                     
                     if (!request.has("feature")) {
-                        sendError(t, 400, "Missing 'feature' field");
+                        WebEditorServer.sendJsonError(t, 400, "Missing 'feature' field", null);
                         return;
                     }
 
@@ -294,7 +315,15 @@ public class WebEditorServer {
 
                 } catch (Exception e) {
                     TreeEngine.LOGGER.error("Benchmark failed", e);
-                    sendError(t, 500, "Benchmark failed: " + e.getMessage());
+                    String message = "Benchmark failed";
+                    String details = e.getMessage();
+
+                    if (e instanceof RuntimeException && e.getMessage().startsWith("Failed to parse feature:")) {
+                        message = "Invalid Tree Configuration";
+                        details = e.getMessage().substring("Failed to parse feature: ".length());
+                    }
+                    
+                    WebEditorServer.sendJsonError(t, 500, message, details);
                 }
             } else {
                 t.sendResponseHeaders(405, -1);
@@ -326,14 +355,8 @@ public class WebEditorServer {
             return new BenchmarkResult(totalTimeMs, avgTimeMs, treesPerSecond, iterations);
         }
 
-        private void sendError(HttpExchange t, int code, String message) throws IOException {
-            String json = "{\"error\": \"" + message + "\"}";
-            t.sendResponseHeaders(code, json.length());
-            try (OutputStream os = t.getResponseBody()) {
-                os.write(json.getBytes());
-            }
         }
-
+        
         private static class BenchmarkResult {
             double totalTimeMs;
             double avgTimeMs;
@@ -347,5 +370,4 @@ public class WebEditorServer {
                 this.iterations = iterations;
             }
         }
-    }
 }

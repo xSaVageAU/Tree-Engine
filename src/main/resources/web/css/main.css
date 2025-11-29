@@ -336,7 +336,7 @@ button.secondary:hover {
 
 #status {
     position: absolute;
-    bottom: 20px;
+    top: 20px;
     left: 20px;
     background: var(--bg-panel);
     padding: 8px 12px;
@@ -344,7 +344,7 @@ button.secondary:hover {
     font-size: 12px;
     border: 1px solid var(--border);
     color: var(--text-muted);
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 /* Bottom Monaco Editor Panel - Overlays canvas with position fixed */
