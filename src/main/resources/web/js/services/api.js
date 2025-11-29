@@ -64,22 +64,7 @@ async function generateTree() {
     if (status) status.textContent = "Generating...";
 
     // Get the raw Minecraft JSON config
-    let featureJson = null;
-
-    if (window.currentTreeJson) {
-        // Use the full loaded JSON (preserves wrappers like random_patch)
-        featureJson = window.currentTreeJson;
-    } else {
-        // Extract from form and wrap in minecraft:tree
-        const container = document.getElementById('dynamic-form-container');
-        if (window.treeBrowser && window.treeBrowser.schemaFormBuilder && container) {
-            const config = window.treeBrowser.schemaFormBuilder.extractValues(container);
-            featureJson = {
-                type: "minecraft:tree",
-                config: config
-            };
-        }
-    }
+    let featureJson = window.currentTreeJson;
 
     if (!featureJson) {
         console.error('No tree config available for generation');
