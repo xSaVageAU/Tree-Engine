@@ -33,6 +33,10 @@ public class WebFileExporter {
         "js/services/rendering/leaf-renderer.js",
         "js/services/rendering/block-renderer.js",
         "js/services/rendering/ground-renderer.js",
+        "js/services/rendering/complex-block-renderer.js",
+        "js/services/rendering/wall-renderer.js",
+        "js/services/rendering/cocoa-renderer.js",
+        "js/services/rendering/cross-renderer.js",
         "js/utils/helpers.js",
         "forms/schema-form.js"
     };

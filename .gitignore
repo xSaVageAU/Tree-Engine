@@ -43,3 +43,5 @@ replay_*.log
 ref_tree_files/
 src.zip
 src/reference_do_not_edit
+docs/datapack_doc.md
+docs/backport-info.md

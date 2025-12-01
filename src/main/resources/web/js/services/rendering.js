@@ -109,7 +109,10 @@ function renderScene(blocks) {
         const isLog = blockName.includes('log') || blockName.includes('wood');
         const isLeaf = blockName.includes('leaves');
 
-        if (isLog) {
+        // Check for complex model first
+        if (ComplexBlockRenderer.MODEL_TYPES[blockId]) {
+            ComplexBlockRenderer.render(blockList, blockName, blockId, path, selectedBiome);
+        } else if (isLog) {
             renderLogs(blockList, blockId, path);
         } else if (isLeaf) {
             renderLeaves(blockList, blockName, blockId, path, selectedBiome);
