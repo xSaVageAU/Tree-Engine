@@ -20,7 +20,7 @@ https://github.com/user-attachments/assets/dadb7aad-cf3f-4de2-a6cc-ff38f6b9474e
 
 ## Installation
 
-1.  Install **Fabric Loader** for Minecraft 1.21.10.
+1.  Install **Fabric Loader** for any Minecraft versions 1.21.2 -> 1.21.10.
 2.  Install **Fabric API**.
 3.  Drop the `tree-engine.jar` into your `mods` folder.
 4.  Launch the game/server.
