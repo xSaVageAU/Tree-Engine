@@ -3,20 +3,30 @@
 function renderWallBlock(blocks, blockId, texturePath, biome) {
     const mat = new BABYLON.StandardMaterial(`${blockId}_wall_mat`, scene);
     mat.diffuseTexture = new BABYLON.Texture(texturePath + blockId + ".png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
-    mat.diffuseTexture.hasAlpha = true;
+    mat.diffuseTexture.hasAlpha = blockId === 'vine' ? true : false;
     mat.useAlphaFromDiffuseTexture = true;
     mat.backFaceCulling = false;
-    mat.specularColor = BABYLON.Color3.Black();
+    mat.twoSidedLighting = true;
+    mat.specularColor = BABYLON.Color3.Black(); // No specular highlights
 
     // Apply biome tinting for vines (they use foliage colors like leaves)
     if (blockId === 'vine') {
         mat.diffuseColor = resolveLeafColor('minecraft:vine', biome);
+        mat.ambientColor = new BABYLON.Color3(0.25, 0.25, 0.25); // Add ambient brightness to match in-game appearance
     }
+
+    // Use alpha test mode for proper transparency sorting
+    mat.transparencyMode = BABYLON.Material.MATERIAL_ALPHATEST;
+    mat.alphaCutOff = 0.5;
+
+    // Add slight emission to brighten and reduce shadow darkness
+    //mat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05);
 
     // Use a single master plane, we'll rotate each instance
     const plane = BABYLON.MeshBuilder.CreatePlane(`master_${blockId}`, { size: 1 }, scene);
     plane.material = mat;
     plane.isVisible = false;
+    plane.receiveShadows = false;
     masterMeshes[blockId] = plane;
 
     const matrices = [];
