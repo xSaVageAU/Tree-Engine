@@ -141,8 +141,12 @@ class EditorManager {
         // Load new content
         this.isUpdatingEditor = true;
         const jsonToLoad = mode === 'TREE' ? window.currentTreeJson : window.currentPlacedFeatureJson;
-        if (this.monacoEditor && jsonToLoad) {
-            this.monacoEditor.setValue(JSON.stringify(jsonToLoad, null, 2));
+        if (this.monacoEditor) {
+            if (jsonToLoad) {
+                this.monacoEditor.setValue(JSON.stringify(jsonToLoad, null, 2));
+            } else {
+                this.monacoEditor.setValue('{}');
+            }
         }
         setTimeout(() => {
             this.isUpdatingEditor = false;

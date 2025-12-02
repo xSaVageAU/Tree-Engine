@@ -136,9 +136,22 @@ class TreeManager {
         // Show library, hide settings
         const librarySection = document.getElementById('library-section');
         const settingsPanel = document.getElementById('settings-panel');
-
         librarySection.style.display = 'flex';
         settingsPanel.style.display = 'none';
+        // Clear the 3D renderer
+        if (typeof clearScene === 'function') {
+            clearScene();
+        }
+        // Close and reset the Monaco editor
+        if (window.editorManager) {
+            const bottomPanel = document.getElementById('bottom-panel');
+            if (bottomPanel.classList.contains('open')) {
+                window.editorManager.closeJsonEditor();
+            }
+        }
+        // Clear tree selection
+        this.selectedTreeId = null;
+        this.renderTreeList();
     }
 
     showReplacers() {
@@ -204,6 +217,7 @@ class TreeManager {
             type: "minecraft:tree",
             config: defaultConfig
         };
+        window.currentPlacedFeatureJson = null;
 
         // Show settings with empty name
         this.showSettings("", window.currentTreeJson);
@@ -439,6 +453,7 @@ class TreeManager {
 
                 // Load into editor
                 window.currentTreeJson = treeJson;
+                window.currentPlacedFeatureJson = null;
 
                 // Set name to the imported ID (cleaned up)
                 const name = id.split(':')[1] || id;

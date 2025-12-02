@@ -124,4 +124,18 @@ function renderScene(blocks) {
     });
 }
 
+function clearScene() {
+    // Clear existing meshes
+    Object.values(masterMeshes).forEach(mesh => {
+        if (mesh.material) {
+            if (mesh.material.subMaterials) {
+                mesh.material.subMaterials.forEach(m => m.dispose());
+            }
+            mesh.material.dispose();
+        }
+        mesh.dispose();
+    });
+    masterMeshes = {};
+}
+
 
