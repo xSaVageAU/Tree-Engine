@@ -70,6 +70,11 @@ public class TreeApiHandler implements HttpHandler {
                         else if ("DELETE".equals(method)) handleDelete(exchange, id);
                         else if ("PUT".equals(method) || "POST".equals(method)) handleSave(exchange);
                         else sendError(exchange, 405, "Method not allowed");
+                    } else if (parts.length == 5 && "placement".equals(parts[4])) {
+                        String id = parts[3];
+                        if ("GET".equals(method)) handleGetPlacement(exchange, id);
+                        else if ("POST".equals(method)) handleSavePlacement(exchange, id);
+                        else sendError(exchange, 405, "Method not allowed");
                     }
                 } else if ("vanilla_trees".equals(endpoint)) {
                     if ("GET".equals(method)) handleListVanilla(exchange);
@@ -254,6 +259,62 @@ public class TreeApiHandler implements HttpHandler {
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to get tree: {}", id, e);
             sendResponse(exchange, 500, "{\"error\":\"Failed to load tree\"}");
+        }
+    }
+
+    private void handleGetPlacement(HttpExchange exchange, String id) throws IOException {
+        // Validate tree ID
+        if (!InputValidator.isValidTreeId(id)) {
+            sendResponse(exchange, 400, "{\"error\":\"Invalid tree ID\"}");
+            return;
+        }
+
+        try {
+            Path file = PathValidator.resolveSafePath(id + ".json", PLACED_FEATURE_DIR);
+            
+            if (!Files.exists(file)) {
+                // Return default if not exists (should have been created by ensurePlacedFeaturesExist, but just in case)
+                JsonObject defaultPlacement = new JsonObject();
+                defaultPlacement.addProperty("feature", "tree_engine:" + id);
+                defaultPlacement.add("placement", new com.google.gson.JsonArray());
+                sendResponse(exchange, 200, GSON.toJson(defaultPlacement));
+                return;
+            }
+
+            String jsonContent = Files.readString(file, StandardCharsets.UTF_8);
+            sendResponse(exchange, 200, jsonContent);
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to get placement: {}", id, e);
+            sendResponse(exchange, 500, "{\"error\":\"Failed to load placement\"}");
+        }
+    }
+
+    private void handleSavePlacement(HttpExchange exchange, String id) throws IOException {
+        try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
+            JsonElement json = JsonParser.parseReader(reader);
+            
+            if (!json.isJsonObject()) {
+                sendError(exchange, 400, "Invalid JSON object");
+                return;
+            }
+            
+            // Validate tree ID
+            if (!InputValidator.isValidTreeId(id)) {
+                sendResponse(exchange, 400, "{\"error\":\"Invalid tree ID\"}");
+                return;
+            }
+
+            Path placedFile = PLACED_FEATURE_DIR.resolve(id + ".json");
+            Files.createDirectories(PLACED_FEATURE_DIR);
+            
+            try (java.io.FileWriter writer = new java.io.FileWriter(placedFile.toFile())) {
+                GSON.toJson(json, writer);
+            }
+            
+            sendResponse(exchange, 200, "{\"success\": true}");
+        } catch (Exception e) {
+            TreeEngine.LOGGER.error("Failed to save placement: {}", id, e);
+            sendResponse(exchange, 500, "{\"error\":\"Failed to save placement\"}");
         }
     }
 

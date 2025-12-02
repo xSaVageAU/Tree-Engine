@@ -70,6 +70,23 @@ class TreeManager {
                 const treeJson = await response.json();
                 window.currentTreeJson = treeJson;
 
+                // Also load the PlacedFeature
+                fetch(`/api/trees/${treeId}/placement`, {
+                    headers: getAuthHeaders()
+                })
+                    .then(r => r.json())
+                    .then(placementJson => {
+                        window.currentPlacedFeatureJson = placementJson;
+                    })
+                    .catch(err => {
+                        console.error('Failed to load placement:', err);
+                        // Create default if not exists
+                        window.currentPlacedFeatureJson = {
+                            feature: `tree_engine:${treeId}`,
+                            placement: []
+                        };
+                    });
+
                 // Show settings panel and populate
                 this.showSettings(treeId, treeJson);
 
@@ -215,7 +232,14 @@ class TreeManager {
         if (bottomPanel.classList.contains('open') && window.editorManager && window.editorManager.monacoEditor) {
             try {
                 const jsonText = window.editorManager.monacoEditor.getValue();
-                window.currentTreeJson = JSON.parse(jsonText);
+                const parsedJson = JSON.parse(jsonText);
+
+                // Save to the correct variable based on current mode
+                if (window.editorManager.currentMode === 'TREE') {
+                    window.currentTreeJson = parsedJson;
+                } else {
+                    window.currentPlacedFeatureJson = parsedJson;
+                }
             } catch (e) {
                 alert("Invalid JSON in editor. Cannot save.");
                 return;
@@ -265,6 +289,17 @@ class TreeManager {
         } catch (e) {
             console.error('Error saving tree:', e);
             alert('Error saving tree: ' + e.message);
+        }
+
+        // Also save the PlacedFeature if it exists
+        if (window.currentPlacedFeatureJson) {
+            fetch(`/api/trees/${this.selectedTreeId}/placement`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(window.currentPlacedFeatureJson)
+            }).catch(err => {
+                console.error('Failed to save placement:', err);
+            });
         }
     }
 
