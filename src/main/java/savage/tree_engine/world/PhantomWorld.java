@@ -278,7 +278,7 @@ public class PhantomWorld implements StructureWorldAccess {
 
     @Override
     public net.minecraft.server.world.ServerWorld toServerWorld() {
-        return null;
+        return server.getOverworld();
     }
 
     @Override

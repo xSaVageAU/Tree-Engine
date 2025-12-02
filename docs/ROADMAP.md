@@ -14,6 +14,7 @@ The project is currently a functional prototype with a Java-based backend (Fabri
 - [x] **Hot Reloading**: Basic support for reloading tree configurations without restarting the game.
 - [x] **Texture Pack Support**: API to list and serve texture packs for the frontend.
 - [x] **Performance Profiler**: Measure and display performance metrics for tree generation.
+- [x] **Multi-Version Support**: Supporting multiple Minecraft versions simultaneously (`1.21.2` -> `1.21.10`).
 
 ### Frontend (Vanilla JS)
 
@@ -36,7 +37,6 @@ The project is currently a functional prototype with a Java-based backend (Fabri
 ## 4. Future Roadmap (Major Refactors)
 *Goal: Modernize the stack and expand capabilities.*
 - [ ] **Dynamic Form Editor**: Include a from editor similar to or using Misode's form editor.
-- [ ] **Multi-Version Support**: Supporting multiple Minecraft versions simultaneously (stick to one version for now).
 
 ### Frontend Rewrite
 *goal: modernize the frontend stack. Make it easier to maintain and expand.*
