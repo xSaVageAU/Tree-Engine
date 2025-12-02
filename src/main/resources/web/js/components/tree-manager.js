@@ -119,6 +119,40 @@ class TreeManager {
 
         // Populate settings
         document.getElementById('tree_name').value = treeId;
+
+        // Setup listener to update placement feature ID when tree name changes
+        const treeNameInput = document.getElementById('tree_name');
+        if (treeNameInput) {
+            // Remove old listener if exists
+            const oldListener = treeNameInput._placementUpdateListener;
+            if (oldListener) {
+                treeNameInput.removeEventListener('input', oldListener);
+            }
+            // Add new listener
+            const newListener = (e) => {
+                const newName = e.target.value.toLowerCase().trim();
+                if (newName && window.currentPlacedFeatureJson) {
+                    window.currentPlacedFeatureJson.feature = `tree_engine:${newName}`;
+
+                    // Update Monaco editor if it's open and on placement tab
+                    if (window.editorManager &&
+                        window.editorManager.currentMode === 'PLACEMENT' &&
+                        window.editorManager.monacoEditor) {
+                        window.editorManager.isUpdatingEditor = true;
+                        window.editorManager.monacoEditor.setValue(
+                            JSON.stringify(window.currentPlacedFeatureJson, null, 2)
+                        );
+                        setTimeout(() => {
+                            window.editorManager.isUpdatingEditor = false;
+                        }, 100);
+                    }
+                }
+            };
+
+            treeNameInput.addEventListener('input', newListener);
+            treeNameInput._placementUpdateListener = newListener;
+        }
+
         document.getElementById('tree_description').value = "";
 
         // Update Monaco editor content if it exists
@@ -217,7 +251,10 @@ class TreeManager {
             type: "minecraft:tree",
             config: defaultConfig
         };
-        window.currentPlacedFeatureJson = null;
+        window.currentPlacedFeatureJson = {
+            feature: "tree_engine:",
+            placement: []
+        };
 
         // Show settings with empty name
         this.showSettings("", window.currentTreeJson);
@@ -453,7 +490,12 @@ class TreeManager {
 
                 // Load into editor
                 window.currentTreeJson = treeJson;
-                window.currentPlacedFeatureJson = null;
+                // Generate default placement with the imported tree name
+                const treeName = (id.split(':')[1] || id).toLowerCase();
+                window.currentPlacedFeatureJson = {
+                    feature: `tree_engine:${treeName}`,
+                    placement: []
+                };
 
                 // Set name to the imported ID (cleaned up)
                 const name = id.split(':')[1] || id;
