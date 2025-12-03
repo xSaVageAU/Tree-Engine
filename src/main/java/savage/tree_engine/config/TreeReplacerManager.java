@@ -29,16 +29,34 @@ public class TreeReplacerManager {
     public static class TreeReplacer {
         public String id;
         public String vanilla_tree_id;
-        public List<String> replacement_pool;
-        
+        public List<WeightedTree> replacement_pool;
+    
         public TreeReplacer() {
             this.replacement_pool = new ArrayList<>();
         }
-        
-        public TreeReplacer(String id, String vanillaTreeId, List<String> replacementPool) {
+    
+        public TreeReplacer(String id, String vanillaTreeId, List<WeightedTree> replacementPool) {
             this.id = id;
             this.vanilla_tree_id = vanillaTreeId;
             this.replacement_pool = replacementPool != null ? replacementPool : new ArrayList<>();
+        }
+    
+        /**
+         * Represents a tree in the replacement pool with an associated weight.
+         * Higher weights mean the tree appears more frequently.
+         */
+        public static class WeightedTree {
+            public String tree_id;
+            public int weight;
+    
+            public WeightedTree() {
+                this.weight = 1;
+            }
+    
+            public WeightedTree(String treeId, int weight) {
+                this.tree_id = treeId;
+                this.weight = Math.max(1, weight); // Ensure weight is at least 1
+            }
         }
     }
     
@@ -125,37 +143,83 @@ public class TreeReplacerManager {
     
     /**
      * Parse a configured feature file to reconstruct a TreeReplacer object.
+     * Supports both simple_random_selector (legacy) and random_selector (weighted) formats.
      */
     private static TreeReplacer parseReplacerFile(Path file) throws IOException {
         String jsonContent = Files.readString(file);
         JsonObject json = JsonParser.parseString(jsonContent).getAsJsonObject();
-        
-        // Check if it's a simple_random_selector (which we use for replacers)
-        if (!json.has("type") || !json.get("type").getAsString().equals("minecraft:simple_random_selector")) {
-            return null;
-        }
-        
-        if (!json.has("config")) return null;
-        JsonObject config = json.getAsJsonObject("config");
-        
-        if (!config.has("features")) return null;
-        JsonArray features = config.getAsJsonArray("features");
-        
-        List<String> pool = new ArrayList<>();
-        for (JsonElement element : features) {
-            if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
-                pool.add(element.getAsString());
-            } else if (element.isJsonObject()) {
-                JsonObject entry = element.getAsJsonObject();
-                if (entry.has("feature")) {
-                    pool.add(entry.get("feature").getAsString());
+
+        if (!json.has("type")) return null;
+        String type = json.get("type").getAsString();
+
+        List<TreeReplacer.WeightedTree> pool = new ArrayList<>();
+
+        if (type.equals("minecraft:simple_random_selector")) {
+            // Legacy format - all trees have equal weight (1)
+            if (!json.has("config")) return null;
+            JsonObject config = json.getAsJsonObject("config");
+
+            if (!config.has("features")) return null;
+            JsonArray features = config.getAsJsonArray("features");
+
+            for (JsonElement element : features) {
+                if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+                    pool.add(new TreeReplacer.WeightedTree(element.getAsString(), 1));
+                } else if (element.isJsonObject()) {
+                    JsonObject entry = element.getAsJsonObject();
+                    if (entry.has("feature")) {
+                        pool.add(new TreeReplacer.WeightedTree(entry.get("feature").getAsString(), 1));
+                    }
                 }
             }
+        } else if (type.equals("minecraft:random_selector")) {
+            // New weighted format
+            if (!json.has("config")) return null;
+            JsonObject config = json.getAsJsonObject("config");
+
+            // Parse default tree
+            if (config.has("default")) {
+                String defaultTree = config.get("default").getAsString();
+
+                // Calculate default tree's weight from remaining probability
+                double totalChance = 0.0;
+                if (config.has("features")) {
+                    JsonArray features = config.getAsJsonArray("features");
+                    for (JsonElement elem : features) {
+                        JsonObject entry = elem.getAsJsonObject();
+                        if (entry.has("chance")) {
+                            totalChance += entry.get("chance").getAsDouble();
+                        }
+                    }
+                }
+
+                // Default gets remaining probability (convert to weight out of 100)
+                double defaultChance = 1.0 - totalChance;
+                int defaultWeight = (int) Math.round(defaultChance * 100);
+                pool.add(new TreeReplacer.WeightedTree(defaultTree, Math.max(1, defaultWeight)));
+            }
+
+            // Parse weighted trees
+            if (config.has("features")) {
+                JsonArray features = config.getAsJsonArray("features");
+                for (JsonElement elem : features) {
+                    JsonObject entry = elem.getAsJsonObject();
+                    if (entry.has("feature") && entry.has("chance")) {
+                        String treeId = entry.get("feature").getAsString();
+                        double chance = entry.get("chance").getAsDouble();
+                        int weight = (int) Math.round(chance * 100);
+                        pool.add(new TreeReplacer.WeightedTree(treeId, Math.max(1, weight)));
+                    }
+                }
+            }
+        } else {
+            // Not a recognized replacer format
+            return null;
         }
-        
+
         String filename = file.getFileName().toString();
         String vanillaId = "minecraft:" + filename.replace(".json", "");
-        
+
         // We use the vanilla ID as the replacer ID since it's 1:1
         return new TreeReplacer(vanillaId, vanillaId, pool);
     }
@@ -237,18 +301,31 @@ public class TreeReplacerManager {
             throw new IllegalArgumentException("Replacement pool cannot be empty");
         }
 
-        // Always use simple_random_selector, even for a single tree
-        feature.addProperty("type", "minecraft:simple_random_selector");
-        
+        // Use random_selector with weights
+        feature.addProperty("type", "minecraft:random_selector");
         JsonObject configObj = new JsonObject();
+        // Calculate total weight
+        int totalWeight = replacer.replacement_pool.stream()
+            .mapToInt(wt -> wt.weight)
+            .sum();
+        // Find tree with highest weight to use as default
+        TreeReplacer.WeightedTree defaultTree = replacer.replacement_pool.stream()
+            .max((a, b) -> Integer.compare(a.weight, b.weight))
+            .orElseThrow();
+        configObj.addProperty("default", defaultTree.tree_id);
+        // Add remaining trees as weighted features
         JsonArray featuresArray = new JsonArray();
-        
-        // For simple_random_selector, we just provide a list of PlacedFeatures (strings)
-        // It picks one with equal probability
-        for (String treeId : replacer.replacement_pool) {
-            featuresArray.add(treeId);
+        for (TreeReplacer.WeightedTree wt : replacer.replacement_pool) {
+            if (wt == defaultTree) continue; // Skip default tree
+            
+            JsonObject entry = new JsonObject();
+            // Calculate probability (chance that this tree is selected)
+            double chance = (double) wt.weight / totalWeight;
+            entry.addProperty("chance", chance);
+            entry.addProperty("feature", wt.tree_id);
+            
+            featuresArray.add(entry);
         }
-        
         configObj.add("features", featuresArray);
         feature.add("config", configObj);
         

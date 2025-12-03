@@ -329,31 +329,46 @@ public class RegistryUtils {
     }
 
     /**
-     * Create a simple_random_selector ConfiguredFeature from a list of feature IDs.
+     * Create a random_selector ConfiguredFeature from a list of weighted trees.
      */
-    private static ConfiguredFeature<?, ?> createRandomSelectorFeature(MinecraftServer server, List<String> featureIds) {
+    private static ConfiguredFeature<?, ?> createRandomSelectorFeature(MinecraftServer server, List<TreeReplacerManager.TreeReplacer.WeightedTree> weightedTrees) {
         try {
-            // Create the JSON structure for a simple_random_selector
+            // Create the JSON structure for a random_selector
             JsonObject feature = new JsonObject();
-            feature.addProperty("type", "minecraft:simple_random_selector");
-
+            feature.addProperty("type", "minecraft:random_selector");
             JsonObject configObj = new JsonObject();
+
+            // Calculate total weight
+            int totalWeight = weightedTrees.stream()
+                .mapToInt(wt -> wt.weight)
+                .sum();
+
+            // Find tree with highest weight to use as default
+            TreeReplacerManager.TreeReplacer.WeightedTree defaultTree = weightedTrees.stream()
+                .max((a, b) -> Integer.compare(a.weight, b.weight))
+                .orElseThrow();
+
+            configObj.addProperty("default", defaultTree.tree_id);
+
+            // Add remaining trees as weighted features
             JsonArray featuresArray = new JsonArray();
+            for (TreeReplacerManager.TreeReplacer.WeightedTree wt : weightedTrees) {
+                if (wt == defaultTree) continue; // Skip default tree
 
-            // Add each feature ID to the pool
-            for (String featureId : featureIds) {
-                featuresArray.add(featureId);
+                JsonObject entry = new JsonObject();
+                // Calculate probability (chance that this tree is selected)
+                double chance = (double) wt.weight / totalWeight;
+                entry.addProperty("chance", chance);
+                entry.addProperty("feature", wt.tree_id);
+
+                featuresArray.add(entry);
             }
-
             configObj.add("features", featuresArray);
             feature.add("config", configObj);
-
             // Parse the JSON into a ConfiguredFeature
             RegistryOps<JsonElement> ops = RegistryOps.of(JsonOps.INSTANCE, server.getRegistryManager());
             DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, feature);
-
             return result.getOrThrow(s -> new RuntimeException("Failed to parse random selector feature: " + s));
-
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to create random selector feature", e);
             return null;

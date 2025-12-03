@@ -447,8 +447,13 @@ public class TreeApiHandler implements HttpHandler {
                 List<TreeReplacerManager.TreeReplacer> replacers = TreeReplacerManager.getAll();
                 
                 for (TreeReplacerManager.TreeReplacer replacer : replacers) {
-                    if (replacer.replacement_pool.contains(featureId)) {
-                        replacer.replacement_pool.remove(featureId);
+                    // Check if this tree is in the replacement pool
+                    boolean found = replacer.replacement_pool.stream()
+                        .anyMatch(wt -> wt.tree_id.equals(featureId));
+
+                    if (found) {
+                        // Remove the tree from the pool
+                        replacer.replacement_pool.removeIf(wt -> wt.tree_id.equals(featureId));
                         TreeEngine.LOGGER.info("Removed deleted tree {} from replacer {}", featureId, replacer.vanilla_tree_id);
                         
                         if (replacer.replacement_pool.isEmpty()) {

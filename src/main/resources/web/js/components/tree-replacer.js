@@ -127,7 +127,11 @@ class TreeReplacerUI {
                 </div>
                 <div style="color: #aaa; font-size: 13px;">
                     <strong>Replacement Pool (${replacer.replacement_pool.length}):</strong><br>
-                    ${replacer.replacement_pool.map(id => `<span style="display: inline-block; background: #2a2a2a; padding: 2px 8px; margin: 2px; border-radius: 3px; font-size: 11px;">${id}</span>`).join('')}
+                    ${replacer.replacement_pool.map(entry => {
+            const id = typeof entry === 'string' ? entry : entry.tree_id;
+            const weight = typeof entry === 'string' ? '' : ` (${entry.weight})`;
+            return `<span style="display: inline-block; background: #2a2a2a; padding: 2px 8px; margin: 2px; border-radius: 3px; font-size: 11px;">${id}${weight}</span>`;
+        }).join('')}
                 </div>
             </div>
         `;
@@ -178,21 +182,17 @@ class TreeReplacerUI {
                 <div class="control-group">
                     <label>Replacement Pool</label>
                     <p style="color: #858585; font-size: 12px; margin: 0 0 10px 0;">Select custom trees to randomly replace the vanilla tree</p>
-                    
-                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #333; border-radius: 3px; background: #1a1a1a; padding: 10px;">
+
+                    <div id="replacement-pool-entries" style="max-height: 200px; overflow-y: auto; border: 1px solid #333; border-radius: 3px; background: #1a1a1a; padding: 10px;">
                         ${this.customTrees.length === 0
                 ? '<p style="color: #858585; text-align: center; margin: 0;">No custom trees available. Create some trees first!</p>'
-                : this.customTrees.map(treeId => `
-                                <label style="display: block; padding: 5px; cursor: pointer;">
-                                    <input type="checkbox" 
-                                           value="${treeId}" 
-                                           ${this.currentReplacer.replacement_pool.includes('tree_engine:' + treeId) ? 'checked' : ''}
-                                           onchange="treeReplacerUI.toggleCustomTree(this)">
-                                    <span style="margin-left: 5px;">${treeId}</span>
-                                </label>
-                            `).join('')
+                : ''
             }
                     </div>
+                    <button id="btn-add-pool-entry" style="width: 100%; margin-top: 10px;">+ Add Tree to Pool</button>
+                    <p style="font-size: 0.9em; color: #888; margin-top: 5px;">
+                        💡 Tip: Higher weights = more common. Example: weight 70 = 70%, weight 20 = 20%, weight 10 = 10%
+                    </p>
                 </div>
 
                 <div style="margin-top: 20px; display: flex; gap: 10px;">
@@ -208,17 +208,48 @@ class TreeReplacerUI {
             this.currentReplacer = null;
             this.renderReplacersPanel();
         });
+
+        // Add event listener for add button
+        document.getElementById('btn-add-pool-entry').addEventListener('click', () => this.addPoolEntry());
+
+        // Populate existing entries
+        this.populatePoolEntries();
     }
 
-    toggleCustomTree(checkbox) {
-        const treeId = 'tree_engine:' + checkbox.value;
-        if (checkbox.checked) {
-            if (!this.currentReplacer.replacement_pool.includes(treeId)) {
-                this.currentReplacer.replacement_pool.push(treeId);
+    addPoolEntry(treeId = '', weight = 1) {
+        const container = document.getElementById('replacement-pool-entries');
+        if (!container || this.customTrees.length === 0) return;
+        const entry = document.createElement('div');
+        entry.className = 'pool-entry';
+        entry.style.display = 'flex';
+        entry.style.alignItems = 'center';
+        entry.style.marginBottom = '5px';
+        entry.innerHTML = `
+            <select class="tree-select" style="flex: 1;">
+                <option value="">Select tree...</option>
+                ${this.customTrees.map(tree => `<option value="tree_engine:${tree}" ${treeId === `tree_engine:${tree}` ? 'selected' : ''}>${tree}</option>`).join('')}
+            </select>
+            <input type="number" class="weight-input" min="1" value="${weight}" placeholder="Weight" style="width: 80px; margin-left: 10px;">
+            <button class="remove-btn" style="margin-left: 10px;">Remove</button>
+        `;
+        entry.querySelector('.remove-btn').addEventListener('click', () => {
+            entry.remove();
+        });
+        container.appendChild(entry);
+    }
+
+    populatePoolEntries() {
+        const container = document.getElementById('replacement-pool-entries');
+        if (!container) return;
+        container.innerHTML = '';
+        if (!this.currentReplacer.replacement_pool) return;
+        this.currentReplacer.replacement_pool.forEach(entry => {
+            if (typeof entry === 'string') {
+                this.addPoolEntry(entry, 1);
+            } else {
+                this.addPoolEntry(entry.tree_id, entry.weight);
             }
-        } else {
-            this.currentReplacer.replacement_pool = this.currentReplacer.replacement_pool.filter(id => id !== treeId);
-        }
+        });
     }
 
     async saveReplacer() {
@@ -233,8 +264,18 @@ class TreeReplacerUI {
             return;
         }
 
-        if (this.currentReplacer.replacement_pool.length === 0) {
-            alert('Please select at least one custom tree for the replacement pool');
+        // Collect pool data
+        const pool = [];
+        document.querySelectorAll('.pool-entry').forEach(entry => {
+            const treeId = entry.querySelector('.tree-select').value;
+            if (!treeId) return; // skip empty selects
+            const weight = parseInt(entry.querySelector('.weight-input').value) || 1;
+            pool.push({ tree_id: treeId, weight: weight });
+        });
+        this.currentReplacer.replacement_pool = pool;
+
+        if (pool.length === 0) {
+            alert('Please add at least one tree to the replacement pool');
             return;
         }
 
