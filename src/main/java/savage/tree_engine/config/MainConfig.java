@@ -20,6 +20,8 @@ public class MainConfig {
     
     public boolean hot_reload_enabled = true;
     
+    public int tree_generation_threads = 4;
+    
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private static final Path CONFIG_DIR = Path.of("config", "tree_engine");
     private static final Path CONFIG_FILE = CONFIG_DIR.resolve("config.json");
@@ -81,7 +83,11 @@ public class MainConfig {
             
             sb.append("\n  // Advanced Settings\n");
             sb.append("  // Enable hot reloading of trees/replacers using reflection (experimental)\n");
-            sb.append("  \"hot_reload_enabled\": ").append(instance.hot_reload_enabled).append("\n");
+            sb.append("  \"hot_reload_enabled\": ").append(instance.hot_reload_enabled).append(",\n");
+            
+            sb.append("\n  // Tree Generation Settings\n");
+            sb.append("  // Number of worker threads for tree preview generation (1-16)\n");
+            sb.append("  \"tree_generation_threads\": ").append(instance.tree_generation_threads).append("\n");
             
             sb.append("}");
             

@@ -223,33 +223,52 @@ public class WebEditorServer {
                     
                     ConfiguredFeature<?, ?> feature = result.getOrThrow(s -> new RuntimeException("Failed to parse feature: " + s));
 
-                    // Schedule generation on main thread
-                    CompletableFuture<List<BlockInfo>> future = CompletableFuture.supplyAsync(() -> {
+                    // Generate tree asynchronously on worker thread
+                    TreeGenerationExecutor.submit(() -> {
                         return generateTree(feature);
-                    }, minecraftServer);
+                    }).thenAccept(blocks -> {
+                        try {
+                            String jsonResponse = GSON.toJson(blocks.stream().map(BlockInfo::toJson).toList());
 
-                    List<BlockInfo> blocks = future.join();
-                    String jsonResponse = GSON.toJson(blocks.stream().map(BlockInfo::toJson).toList());
-
-                    // Send Response
-                    t.getResponseHeaders().set("Content-Type", "application/json");
-                    t.getResponseHeaders().set("Access-Control-Allow-Origin", "*"); // CORS for dev
-                    t.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
-                    t.getResponseHeaders().set("X-Frame-Options", "DENY");
-                    t.getResponseHeaders().set("X-XSS-Protection", "1; mode=block");
-                    
-                    byte[] bytes = jsonResponse.getBytes(StandardCharsets.UTF_8);
-                    t.sendResponseHeaders(200, bytes.length);
-                    OutputStream os = t.getResponseBody();
-                    os.write(bytes);
-                    os.close();
+                            // Send Response
+                            t.getResponseHeaders().set("Content-Type", "application/json");
+                            t.getResponseHeaders().set("Access-Control-Allow-Origin", "*"); // CORS for dev
+                            t.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+                            t.getResponseHeaders().set("X-Frame-Options", "DENY");
+                            t.getResponseHeaders().set("X-XSS-Protection", "1; mode=block");
+                            
+                            byte[] bytes = jsonResponse.getBytes(StandardCharsets.UTF_8);
+                            t.sendResponseHeaders(200, bytes.length);
+                            OutputStream os = t.getResponseBody();
+                            os.write(bytes);
+                            os.close();
+                        } catch (IOException e) {
+                            TreeEngine.LOGGER.error("Failed to send response", e);
+                        }
+                    }).exceptionally(ex -> {
+                        try {
+                            TreeEngine.LOGGER.error("Tree generation failed", ex);
+                            String message = "Failed to generate tree";
+                            String details = ex.getMessage();
+                            
+                            // Extract useful info from DataResult error
+                            if (ex instanceof RuntimeException && ex.getMessage().startsWith("Failed to parse feature:")) {
+                                message = "Invalid Tree Configuration";
+                                details = ex.getMessage().substring("Failed to parse feature: ".length());
+                            }
+                            
+                            WebEditorServer.sendJsonError(t, 500, message, details);
+                        } catch (IOException e) {
+                            TreeEngine.LOGGER.error("Failed to send error response", e);
+                        }
+                        return null;
+                    });
 
                 } catch (Exception e) {
-                    TreeEngine.LOGGER.error("Tree generation failed", e);
-                    String message = "Failed to generate tree";
+                    TreeEngine.LOGGER.error("Failed to parse feature", e);
+                    String message = "Failed to parse tree configuration";
                     String details = e.getMessage();
                     
-                    // Extract useful info from DataResult error
                     if (e instanceof RuntimeException && e.getMessage().startsWith("Failed to parse feature:")) {
                         message = "Invalid Tree Configuration";
                         details = e.getMessage().substring("Failed to parse feature: ".length());
@@ -297,27 +316,47 @@ public class WebEditorServer {
                     com.mojang.serialization.DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, featureJson);
                     ConfiguredFeature<?, ?> feature = result.getOrThrow(s -> new RuntimeException("Failed to parse feature: " + s));
 
-                    // Run benchmark on main thread to be accurate to game performance
+                    // Run benchmark coordination in a separate thread (not in the worker pool)
+                    // This allows the benchmark to submit work to the worker pool without deadlocking
                     final int finalIterations = iterations;
-                    CompletableFuture<BenchmarkResult> future = CompletableFuture.supplyAsync(() -> {
+                    CompletableFuture.supplyAsync(() -> {
                         return runBenchmark(feature, finalIterations);
-                    }, minecraftServer);
+                    }).thenAccept(resultData -> {
+                        try {
+                            String jsonResponse = GSON.toJson(resultData);
 
-                    BenchmarkResult resultData = future.join();
-                    String jsonResponse = GSON.toJson(resultData);
+                            t.getResponseHeaders().set("Content-Type", "application/json");
+                            byte[] bytes = jsonResponse.getBytes(StandardCharsets.UTF_8);
+                            t.sendResponseHeaders(200, bytes.length);
+                            try (OutputStream os = t.getResponseBody()) {
+                                os.write(bytes);
+                            }
+                        } catch (IOException e) {
+                            TreeEngine.LOGGER.error("Failed to send response", e);
+                        }
+                    }).exceptionally(ex -> {
+                        try {
+                            TreeEngine.LOGGER.error("Benchmark failed", ex);
+                            String message = "Benchmark failed";
+                            String details = ex.getMessage();
 
-                    t.getResponseHeaders().set("Content-Type", "application/json");
-                    byte[] bytes = jsonResponse.getBytes(StandardCharsets.UTF_8);
-                    t.sendResponseHeaders(200, bytes.length);
-                    try (OutputStream os = t.getResponseBody()) {
-                        os.write(bytes);
-                    }
+                            if (ex instanceof RuntimeException && ex.getMessage().startsWith("Failed to parse feature:")) {
+                                message = "Invalid Tree Configuration";
+                                details = ex.getMessage().substring("Failed to parse feature: ".length());
+                            }
+                            
+                            WebEditorServer.sendJsonError(t, 500, message, details);
+                        } catch (IOException e) {
+                            TreeEngine.LOGGER.error("Failed to send error response", e);
+                        }
+                        return null;
+                    });
 
                 } catch (Exception e) {
-                    TreeEngine.LOGGER.error("Benchmark failed", e);
-                    String message = "Benchmark failed";
+                    TreeEngine.LOGGER.error("Failed to parse feature", e);
+                    String message = "Failed to parse tree configuration";
                     String details = e.getMessage();
-
+                    
                     if (e instanceof RuntimeException && e.getMessage().startsWith("Failed to parse feature:")) {
                         message = "Invalid Tree Configuration";
                         details = e.getMessage().substring("Failed to parse feature: ".length());
@@ -337,12 +376,27 @@ public class WebEditorServer {
                 feature.generate(world, world.getChunkGenerator(), Random.create(), new BlockPos(0, 0, 0));
             }
 
-            // Measurement
+            // Measurement with parallel execution
             long startTime = System.nanoTime();
             
-            for (int i = 0; i < iterations; i++) {
-                PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager(), minecraftServer);
-                feature.generate(world, world.getChunkGenerator(), Random.create(), new BlockPos(0, 0, 0));
+            // Process trees in parallel batches
+            int batchSize = 100;
+            for (int i = 0; i < iterations; i += batchSize) {
+                int remaining = Math.min(batchSize, iterations - i);
+                
+                // Create futures for this batch
+                @SuppressWarnings("unchecked")
+                CompletableFuture<Void>[] futures = new CompletableFuture[remaining];
+                for (int j = 0; j < remaining; j++) {
+                    futures[j] = TreeGenerationExecutor.submit(() -> {
+                        PhantomWorld world = new PhantomWorld(minecraftServer.getRegistryManager(), minecraftServer);
+                        feature.generate(world, world.getChunkGenerator(), Random.create(), new BlockPos(0, 0, 0));
+                        return null;
+                    });
+                }
+                
+                // Wait for batch to complete
+                CompletableFuture.allOf(futures).join();
             }
             
             long endTime = System.nanoTime();
