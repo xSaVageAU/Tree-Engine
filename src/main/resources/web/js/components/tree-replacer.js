@@ -115,6 +115,12 @@ class TreeReplacerUI {
     }
 
     renderReplacerItem(replacer) {
+        const altText = replacer.alternatives
+            ? replacer.alternatives.map(alt =>
+                `<span style="display: inline-block; background: #2a2a2a; padding: 2px 8px; margin: 2px; border-radius: 3px; font-size: 11px;">${alt.feature} (${(alt.chance * 100).toFixed(0)}%)</span>`
+            ).join('')
+            : 'No alternatives';
+
         return `
             <div class="replacer-item" style="background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 5px; border: 1px solid #333;">
                 <div style="margin-bottom: 10px;">
@@ -126,12 +132,8 @@ class TreeReplacerUI {
                     <button id="delete-replacer-${replacer.id}" class="secondary" style="padding: 5px 10px; font-size: 12px;">Delete</button>
                 </div>
                 <div style="color: #aaa; font-size: 13px;">
-                    <strong>Replacement Pool (${replacer.replacement_pool.length}):</strong><br>
-                    ${replacer.replacement_pool.map(entry => {
-            const id = typeof entry === 'string' ? entry : entry.tree_id;
-            const weight = typeof entry === 'string' ? '' : ` (${entry.weight})`;
-            return `<span style="display: inline-block; background: #2a2a2a; padding: 2px 8px; margin: 2px; border-radius: 3px; font-size: 11px;">${id}${weight}</span>`;
-        }).join('')}
+                    <strong>Default: ${replacer.default_tree || 'Not set'}</strong><br>
+                    <strong>Alternatives:</strong> ${altText}
                 </div>
             </div>
         `;
@@ -148,7 +150,8 @@ class TreeReplacerUI {
         this.currentReplacer = {
             id: '',
             vanilla_tree_id: '',
-            replacement_pool: []
+            default_tree: '',
+            alternatives: []
         };
         this.renderReplacerForm();
     }
@@ -180,18 +183,27 @@ class TreeReplacerUI {
                 </div>
 
                 <div class="control-group">
-                    <label>Replacement Pool</label>
-                    <p style="color: #858585; font-size: 12px; margin: 0 0 10px 0;">Select custom trees to randomly replace the vanilla tree</p>
+                    <label>Default Tree</label>
+                    <p style="color: #858585; font-size: 12px; margin: 0 0 10px 0;">The fallback tree (used when no alternative is selected)</p>
+                    <select id="default-tree-select">
+                        <option value="">Select default tree...</option>
+                        ${this.customTrees.map(tree => `<option value="tree_engine:${tree}">${tree}</option>`).join('')}
+                    </select>
+                </div>
 
-                    <div id="replacement-pool-entries" style="max-height: 200px; overflow-y: auto; border: 1px solid #333; border-radius: 3px; background: #1a1a1a; padding: 10px;">
+                <div class="control-group">
+                    <label>Weighted Alternatives</label>
+                    <p style="color: #858585; font-size: 12px; margin: 0 0 10px 0;">Trees that can replace the default with a specific probability</p>
+
+                    <div id="alternatives-list" style="max-height: 200px; overflow-y: auto; border: 1px solid #333; border-radius: 3px; background: #1a1a1a; padding: 10px;">
                         ${this.customTrees.length === 0
                 ? '<p style="color: #858585; text-align: center; margin: 0;">No custom trees available. Create some trees first!</p>'
                 : ''
             }
                     </div>
-                    <button id="btn-add-pool-entry" style="width: 100%; margin-top: 10px;">+ Add Tree to Pool</button>
+                    <button id="btn-add-alternative" style="width: 100%; margin-top: 10px;">+ Add Alternative</button>
                     <p style="font-size: 0.9em; color: #888; margin-top: 5px;">
-                        💡 Tip: Higher weights = more common. Example: weight 70 = 70%, weight 20 = 20%, weight 10 = 10%
+                        💡 Tip: Chance is the probability this tree replaces the default (0.0-1.0). Example: 0.3 = 30% chance
                     </p>
                 </div>
 
@@ -210,17 +222,17 @@ class TreeReplacerUI {
         });
 
         // Add event listener for add button
-        document.getElementById('btn-add-pool-entry').addEventListener('click', () => this.addPoolEntry());
+        document.getElementById('btn-add-alternative').addEventListener('click', () => this.addAlternative());
 
-        // Populate existing entries
-        this.populatePoolEntries();
+        // Populate existing data
+        this.populateReplacerData();
     }
 
-    addPoolEntry(treeId = '', weight = 1) {
-        const container = document.getElementById('replacement-pool-entries');
+    addAlternative(treeId = '', chance = 0.1) {
+        const container = document.getElementById('alternatives-list');
         if (!container || this.customTrees.length === 0) return;
         const entry = document.createElement('div');
-        entry.className = 'pool-entry';
+        entry.className = 'alternative-entry';
         entry.style.display = 'flex';
         entry.style.alignItems = 'center';
         entry.style.marginBottom = '5px';
@@ -229,7 +241,7 @@ class TreeReplacerUI {
                 <option value="">Select tree...</option>
                 ${this.customTrees.map(tree => `<option value="tree_engine:${tree}" ${treeId === `tree_engine:${tree}` ? 'selected' : ''}>${tree}</option>`).join('')}
             </select>
-            <input type="number" class="weight-input" min="1" value="${weight}" placeholder="Weight" style="width: 80px; margin-left: 10px;">
+            <input type="number" class="chance-input" min="0" max="1" step="0.01" value="${chance}" placeholder="Chance" style="width: 80px; margin-left: 10px;">
             <button class="remove-btn" style="margin-left: 10px;">Remove</button>
         `;
         entry.querySelector('.remove-btn').addEventListener('click', () => {
@@ -238,18 +250,24 @@ class TreeReplacerUI {
         container.appendChild(entry);
     }
 
-    populatePoolEntries() {
-        const container = document.getElementById('replacement-pool-entries');
-        if (!container) return;
+    populateReplacerData() {
+        const defaultSelect = document.getElementById('default-tree-select');
+        const container = document.getElementById('alternatives-list');
+        if (!container || !defaultSelect) return;
+
         container.innerHTML = '';
-        if (!this.currentReplacer.replacement_pool) return;
-        this.currentReplacer.replacement_pool.forEach(entry => {
-            if (typeof entry === 'string') {
-                this.addPoolEntry(entry, 1);
-            } else {
-                this.addPoolEntry(entry.tree_id, entry.weight);
-            }
-        });
+
+        // Set default tree directly from JSON
+        if (this.currentReplacer.default_tree) {
+            defaultSelect.value = this.currentReplacer.default_tree;
+        }
+
+        // Add alternatives directly from JSON
+        if (this.currentReplacer.alternatives) {
+            this.currentReplacer.alternatives.forEach(alt => {
+                this.addAlternative(alt.feature, alt.chance);
+            });
+        }
     }
 
     async saveReplacer() {
@@ -257,28 +275,45 @@ class TreeReplacerUI {
         if (!this.currentReplacer.id) {
             this.currentReplacer.vanilla_tree_id = vanillaTreeSelect.value;
         }
-
-        // Validate
         if (!this.currentReplacer.vanilla_tree_id) {
             alert('Please select a vanilla tree to replace');
             return;
         }
-
-        // Collect pool data
-        const pool = [];
-        document.querySelectorAll('.pool-entry').forEach(entry => {
-            const treeId = entry.querySelector('.tree-select').value;
-            if (!treeId) return; // skip empty selects
-            const weight = parseInt(entry.querySelector('.weight-input').value) || 1;
-            pool.push({ tree_id: treeId, weight: weight });
-        });
-        this.currentReplacer.replacement_pool = pool;
-
-        if (pool.length === 0) {
-            alert('Please add at least one tree to the replacement pool');
+        // Get default tree
+        const defaultTree = document.getElementById('default-tree-select').value;
+        if (!defaultTree) {
+            alert('Please select a default tree');
             return;
         }
 
+        // Set default tree directly
+        this.currentReplacer.default_tree = defaultTree;
+
+        // Collect alternatives directly
+        const alternatives = [];
+        document.querySelectorAll('.alternative-entry').forEach(entry => {
+            const feature = entry.querySelector('.tree-select').value;
+            if (!feature) return;
+            const chance = parseFloat(entry.querySelector('.chance-input').value) || 0;
+            if (chance > 0 && chance <= 1) {
+                alternatives.push({ chance: chance, feature: feature });
+            }
+        });
+
+        // Validate total chance
+        const totalChance = alternatives.reduce((sum, alt) => sum + alt.chance, 0);
+        if (totalChance > 1.0) {
+            alert('Total chance cannot exceed 1.0. Current: ' + totalChance.toFixed(2));
+            return;
+        }
+
+        // Set alternatives directly
+        this.currentReplacer.alternatives = alternatives;
+
+        // Remove old replacement_pool field if it exists
+        delete this.currentReplacer.replacement_pool;
+
+        // Save to backend
         try {
             const response = await fetch('/api/replacers', {
                 method: 'POST',

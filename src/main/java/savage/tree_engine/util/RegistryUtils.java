@@ -151,7 +151,7 @@ public class RegistryUtils {
                 TreeEngine.LOGGER.info("Existing config type: {}", existingFeature.config().getClass().getName());
 
                 // Create new random selector feature
-                ConfiguredFeature<?, ?> newFeature = createRandomSelectorFeature(server, replacer.replacement_pool);
+                ConfiguredFeature<?, ?> newFeature = createRandomSelectorFeature(server, replacer);
                 if (newFeature == null) {
                     TreeEngine.LOGGER.error("Failed to create replacement feature for replacer: {}", replacerId);
                     return false;
@@ -329,42 +329,29 @@ public class RegistryUtils {
     }
 
     /**
-     * Create a random_selector ConfiguredFeature from a list of weighted trees.
+     * Create a random_selector ConfiguredFeature from a TreeReplacer.
      */
-    private static ConfiguredFeature<?, ?> createRandomSelectorFeature(MinecraftServer server, List<TreeReplacerManager.TreeReplacer.WeightedTree> weightedTrees) {
+    private static ConfiguredFeature<?, ?> createRandomSelectorFeature(MinecraftServer server, TreeReplacerManager.TreeReplacer replacer) {
         try {
             // Create the JSON structure for a random_selector
             JsonObject feature = new JsonObject();
             feature.addProperty("type", "minecraft:random_selector");
             JsonObject configObj = new JsonObject();
 
-            // Calculate total weight
-            int totalWeight = weightedTrees.stream()
-                .mapToInt(wt -> wt.weight)
-                .sum();
+            // Set default tree
+            configObj.addProperty("default", replacer.default_tree);
 
-            // Find tree with highest weight to use as default
-            TreeReplacerManager.TreeReplacer.WeightedTree defaultTree = weightedTrees.stream()
-                .max((a, b) -> Integer.compare(a.weight, b.weight))
-                .orElseThrow();
-
-            configObj.addProperty("default", defaultTree.tree_id);
-
-            // Add remaining trees as weighted features
+            // Add alternatives as features
             JsonArray featuresArray = new JsonArray();
-            for (TreeReplacerManager.TreeReplacer.WeightedTree wt : weightedTrees) {
-                if (wt == defaultTree) continue; // Skip default tree
-
+            for (TreeReplacerManager.TreeReplacer.Alternative alt : replacer.alternatives) {
                 JsonObject entry = new JsonObject();
-                // Calculate probability (chance that this tree is selected)
-                double chance = (double) wt.weight / totalWeight;
-                entry.addProperty("chance", chance);
-                entry.addProperty("feature", wt.tree_id);
-
+                entry.addProperty("chance", alt.chance);
+                entry.addProperty("feature", alt.feature);
                 featuresArray.add(entry);
             }
             configObj.add("features", featuresArray);
             feature.add("config", configObj);
+
             // Parse the JSON into a ConfiguredFeature
             RegistryOps<JsonElement> ops = RegistryOps.of(JsonOps.INSTANCE, server.getRegistryManager());
             DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, feature);

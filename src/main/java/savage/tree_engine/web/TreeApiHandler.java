@@ -447,31 +447,42 @@ public class TreeApiHandler implements HttpHandler {
                 List<TreeReplacerManager.TreeReplacer> replacers = TreeReplacerManager.getAll();
                 
                 for (TreeReplacerManager.TreeReplacer replacer : replacers) {
-                    // Check if this tree is in the replacement pool
-                    boolean found = replacer.replacement_pool.stream()
-                        .anyMatch(wt -> wt.tree_id.equals(featureId));
+                    // Check if this tree is the default or in alternatives
+                    boolean found = (replacer.default_tree != null && replacer.default_tree.equals(featureId)) ||
+                                    (replacer.alternatives != null && replacer.alternatives.stream()
+                                        .anyMatch(alt -> alt.feature.equals(featureId)));
 
                     if (found) {
-                        // Remove the tree from the pool
-                        replacer.replacement_pool.removeIf(wt -> wt.tree_id.equals(featureId));
-                        TreeEngine.LOGGER.info("Removed deleted tree {} from replacer {}", featureId, replacer.vanilla_tree_id);
-                        
-                        if (replacer.replacement_pool.isEmpty()) {
-                            // Replacer is now empty, delete it
-                            TreeReplacerManager.delete(replacer.vanilla_tree_id);
-                            TreeEngine.LOGGER.info("Replacer {} is now empty, deleting it", replacer.vanilla_tree_id);
-                            
-                            if (MainConfig.get().hot_reload_enabled) {
-                                String replacerId = "minecraft:" + replacer.vanilla_tree_id.split(":")[1];
-                                RegistryUtils.removeReplacerFromRegistry(minecraftServer, replacerId);
+                        // Remove the tree from the replacer
+                        if (replacer.default_tree != null && replacer.default_tree.equals(featureId)) {
+                            // If it's the default, we need to choose a new default or delete the replacer
+                            if (replacer.alternatives != null && !replacer.alternatives.isEmpty()) {
+                                // Move first alternative to default
+                                TreeReplacerManager.TreeReplacer.Alternative firstAlt = replacer.alternatives.remove(0);
+                                replacer.default_tree = firstAlt.feature;
+                                TreeEngine.LOGGER.info("Moved {} to default in replacer {}", featureId, replacer.vanilla_tree_id);
+                            } else {
+                                // No alternatives left, delete the replacer
+                                TreeReplacerManager.delete(replacer.vanilla_tree_id);
+                                TreeEngine.LOGGER.info("Replacer {} is now empty, deleting it", replacer.vanilla_tree_id);
+
+                                if (MainConfig.get().hot_reload_enabled) {
+                                    String replacerId = "minecraft:" + replacer.vanilla_tree_id.split(":")[1];
+                                    RegistryUtils.removeReplacerFromRegistry(minecraftServer, replacerId);
+                                }
+                                continue; // Skip the rest for this replacer
                             }
                         } else {
-                            // Replacer still has trees, update it
-                            TreeReplacerManager.saveReplacer(replacer);
-                            
-                            if (MainConfig.get().hot_reload_enabled) {
-                                RegistryUtils.updateReplacerInRegistry(minecraftServer, replacer);
-                            }
+                            // Remove from alternatives
+                            replacer.alternatives.removeIf(alt -> alt.feature.equals(featureId));
+                            TreeEngine.LOGGER.info("Removed deleted tree {} from alternatives in replacer {}", featureId, replacer.vanilla_tree_id);
+                        }
+
+                        // Replacer still has trees, update it
+                        TreeReplacerManager.saveReplacer(replacer);
+
+                        if (MainConfig.get().hot_reload_enabled) {
+                            RegistryUtils.updateReplacerInRegistry(minecraftServer, replacer);
                         }
                     }
                 }
@@ -524,9 +535,9 @@ public class TreeApiHandler implements HttpHandler {
                 sendError(exchange, 400, "Missing vanilla_tree_id");
                 return;
             }
-            
-            if (replacer.replacement_pool == null || replacer.replacement_pool.isEmpty()) {
-                sendError(exchange, 400, "Replacement pool cannot be empty");
+
+            if (replacer.default_tree == null || replacer.default_tree.isEmpty()) {
+                sendError(exchange, 400, "Default tree must be specified");
                 return;
             }
             

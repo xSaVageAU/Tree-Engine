@@ -29,33 +29,32 @@ public class TreeReplacerManager {
     public static class TreeReplacer {
         public String id;
         public String vanilla_tree_id;
-        public List<WeightedTree> replacement_pool;
-    
+        public String default_tree;
+        public List<Alternative> alternatives;
+
         public TreeReplacer() {
-            this.replacement_pool = new ArrayList<>();
+            this.alternatives = new ArrayList<>();
         }
-    
-        public TreeReplacer(String id, String vanillaTreeId, List<WeightedTree> replacementPool) {
+
+        public TreeReplacer(String id, String vanillaTreeId, String defaultTree, List<Alternative> alternatives) {
             this.id = id;
             this.vanilla_tree_id = vanillaTreeId;
-            this.replacement_pool = replacementPool != null ? replacementPool : new ArrayList<>();
+            this.default_tree = defaultTree;
+            this.alternatives = alternatives != null ? alternatives : new ArrayList<>();
         }
-    
+
         /**
-         * Represents a tree in the replacement pool with an associated weight.
-         * Higher weights mean the tree appears more frequently.
+         * Represents an alternative tree with a chance value.
          */
-        public static class WeightedTree {
-            public String tree_id;
-            public int weight;
-    
-            public WeightedTree() {
-                this.weight = 1;
-            }
-    
-            public WeightedTree(String treeId, int weight) {
-                this.tree_id = treeId;
-                this.weight = Math.max(1, weight); // Ensure weight is at least 1
+        public static class Alternative {
+            public double chance;
+            public String feature;
+
+            public Alternative() {}
+
+            public Alternative(double chance, String feature) {
+                this.chance = chance;
+                this.feature = feature;
             }
         }
     }
@@ -143,7 +142,7 @@ public class TreeReplacerManager {
     
     /**
      * Parse a configured feature file to reconstruct a TreeReplacer object.
-     * Supports both simple_random_selector (legacy) and random_selector (weighted) formats.
+     * Supports both simple_random_selector (legacy) and random_selector formats.
      */
     private static TreeReplacer parseReplacerFile(Path file) throws IOException {
         String jsonContent = Files.readString(file);
@@ -152,63 +151,58 @@ public class TreeReplacerManager {
         if (!json.has("type")) return null;
         String type = json.get("type").getAsString();
 
-        List<TreeReplacer.WeightedTree> pool = new ArrayList<>();
+        TreeReplacer replacer = new TreeReplacer();
 
-        if (type.equals("minecraft:simple_random_selector")) {
-            // Legacy format - all trees have equal weight (1)
+        if (type.equals("minecraft:random_selector")) {
+            if (!json.has("config")) return null;
+            JsonObject config = json.getAsJsonObject("config");
+
+            // Get default tree
+            if (config.has("default")) {
+                replacer.default_tree = config.get("default").getAsString();
+            }
+
+            // Get alternatives
+            replacer.alternatives = new ArrayList<>();
+            if (config.has("features")) {
+                JsonArray features = config.getAsJsonArray("features");
+                for (JsonElement elem : features) {
+                    JsonObject entry = elem.getAsJsonObject();
+                    if (entry.has("chance") && entry.has("feature")) {
+                        double chance = entry.get("chance").getAsDouble();
+                        String feature = entry.get("feature").getAsString();
+                        replacer.alternatives.add(new TreeReplacer.Alternative(chance, feature));
+                    }
+                }
+            }
+        } else if (type.equals("minecraft:simple_random_selector")) {
+            // Legacy: convert to new format with equal chances
             if (!json.has("config")) return null;
             JsonObject config = json.getAsJsonObject("config");
 
             if (!config.has("features")) return null;
             JsonArray features = config.getAsJsonArray("features");
 
+            // Use first feature as default, others as alternatives with equal chance
+            List<String> featureList = new ArrayList<>();
             for (JsonElement element : features) {
                 if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
-                    pool.add(new TreeReplacer.WeightedTree(element.getAsString(), 1));
+                    featureList.add(element.getAsString());
                 } else if (element.isJsonObject()) {
                     JsonObject entry = element.getAsJsonObject();
                     if (entry.has("feature")) {
-                        pool.add(new TreeReplacer.WeightedTree(entry.get("feature").getAsString(), 1));
+                        featureList.add(entry.get("feature").getAsString());
                     }
                 }
             }
-        } else if (type.equals("minecraft:random_selector")) {
-            // New weighted format
-            if (!json.has("config")) return null;
-            JsonObject config = json.getAsJsonObject("config");
 
-            // Parse default tree
-            if (config.has("default")) {
-                String defaultTree = config.get("default").getAsString();
-
-                // Calculate default tree's weight from remaining probability
-                double totalChance = 0.0;
-                if (config.has("features")) {
-                    JsonArray features = config.getAsJsonArray("features");
-                    for (JsonElement elem : features) {
-                        JsonObject entry = elem.getAsJsonObject();
-                        if (entry.has("chance")) {
-                            totalChance += entry.get("chance").getAsDouble();
-                        }
-                    }
-                }
-
-                // Default gets remaining probability (convert to weight out of 100)
-                double defaultChance = 1.0 - totalChance;
-                int defaultWeight = (int) Math.round(defaultChance * 100);
-                pool.add(new TreeReplacer.WeightedTree(defaultTree, Math.max(1, defaultWeight)));
-            }
-
-            // Parse weighted trees
-            if (config.has("features")) {
-                JsonArray features = config.getAsJsonArray("features");
-                for (JsonElement elem : features) {
-                    JsonObject entry = elem.getAsJsonObject();
-                    if (entry.has("feature") && entry.has("chance")) {
-                        String treeId = entry.get("feature").getAsString();
-                        double chance = entry.get("chance").getAsDouble();
-                        int weight = (int) Math.round(chance * 100);
-                        pool.add(new TreeReplacer.WeightedTree(treeId, Math.max(1, weight)));
+            if (!featureList.isEmpty()) {
+                replacer.default_tree = featureList.get(0);
+                replacer.alternatives = new ArrayList<>();
+                if (featureList.size() > 1) {
+                    double equalChance = 1.0 / (featureList.size() - 1);
+                    for (int i = 1; i < featureList.size(); i++) {
+                        replacer.alternatives.add(new TreeReplacer.Alternative(equalChance, featureList.get(i)));
                     }
                 }
             }
@@ -219,9 +213,10 @@ public class TreeReplacerManager {
 
         String filename = file.getFileName().toString();
         String vanillaId = "minecraft:" + filename.replace(".json", "");
+        replacer.id = vanillaId;
+        replacer.vanilla_tree_id = vanillaId;
 
-        // We use the vanilla ID as the replacer ID since it's 1:1
-        return new TreeReplacer(vanillaId, vanillaId, pool);
+        return replacer;
     }
     
     /**
@@ -281,58 +276,48 @@ public class TreeReplacerManager {
         if (parts.length != 2) {
             throw new IllegalArgumentException("Invalid vanilla tree ID: " + vanillaId);
         }
-        
+
         String namespace = parts[0];
         String path = parts[1];
-        
+
         // Create the output path: data/{namespace}/worldgen/configured_feature/{path}.json
         Path outputDir = DATAPACK_ROOT.resolve("data")
             .resolve(namespace)
             .resolve("worldgen")
             .resolve("configured_feature");
         Files.createDirectories(outputDir);
-        
+
         Path outputFile = outputDir.resolve(path + ".json");
-        
+
         // Generate the configured feature JSON
         JsonObject feature = new JsonObject();
-        
-        if (replacer.replacement_pool.isEmpty()) {
-            throw new IllegalArgumentException("Replacement pool cannot be empty");
+        feature.addProperty("type", "minecraft:random_selector");
+
+        JsonObject configObj = new JsonObject();
+
+        // Set default tree
+        if (replacer.default_tree != null && !replacer.default_tree.isEmpty()) {
+            configObj.addProperty("default", replacer.default_tree);
+        } else {
+            throw new IllegalArgumentException("Default tree must be specified");
         }
 
-        // Use random_selector with weights
-        feature.addProperty("type", "minecraft:random_selector");
-        JsonObject configObj = new JsonObject();
-        // Calculate total weight
-        int totalWeight = replacer.replacement_pool.stream()
-            .mapToInt(wt -> wt.weight)
-            .sum();
-        // Find tree with highest weight to use as default
-        TreeReplacer.WeightedTree defaultTree = replacer.replacement_pool.stream()
-            .max((a, b) -> Integer.compare(a.weight, b.weight))
-            .orElseThrow();
-        configObj.addProperty("default", defaultTree.tree_id);
-        // Add remaining trees as weighted features
+        // Set alternatives
         JsonArray featuresArray = new JsonArray();
-        for (TreeReplacer.WeightedTree wt : replacer.replacement_pool) {
-            if (wt == defaultTree) continue; // Skip default tree
-            
+        for (TreeReplacer.Alternative alt : replacer.alternatives) {
             JsonObject entry = new JsonObject();
-            // Calculate probability (chance that this tree is selected)
-            double chance = (double) wt.weight / totalWeight;
-            entry.addProperty("chance", chance);
-            entry.addProperty("feature", wt.tree_id);
-            
+            entry.addProperty("chance", alt.chance);
+            entry.addProperty("feature", alt.feature);
             featuresArray.add(entry);
         }
+
         configObj.add("features", featuresArray);
         feature.add("config", configObj);
-        
+
         // Write the file
         String json = GSON.toJson(feature);
         Files.writeString(outputFile, json);
-        
+
         TreeEngine.LOGGER.info("Generated tree replacer datapack file: " + outputFile);
     }
     
