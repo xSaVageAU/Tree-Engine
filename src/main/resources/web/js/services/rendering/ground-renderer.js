@@ -4,20 +4,32 @@ function renderGroundBlocks(blocks, blockId, texturePath) {
     const matSide = new BABYLON.StandardMaterial(`${blockId}_side`, scene);
     matSide.diffuseTexture = new BABYLON.Texture(texturePath + blockId + "_side.png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
     matSide.specularColor = BABYLON.Color3.Black();
+    matSide.useVertexColors = true;
 
     const matTop = new BABYLON.StandardMaterial(`${blockId}_top`, scene);
     matTop.diffuseTexture = new BABYLON.Texture(texturePath + blockId + "_top.png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
     matTop.specularColor = BABYLON.Color3.Black();
+    matTop.useVertexColors = true;
 
     // Bottom is usually dirt
     const matBottom = new BABYLON.StandardMaterial(`${blockId}_bottom`, scene);
     matBottom.diffuseTexture = new BABYLON.Texture(texturePath + "dirt.png", scene, null, null, BABYLON.Texture.NEAREST_SAMPLINGMODE);
     matBottom.specularColor = BABYLON.Color3.Black();
+    matBottom.useVertexColors = true;
 
     const multiMat = new BABYLON.MultiMaterial(`multi_${blockId}`, scene);
     multiMat.subMaterials.push(matSide);   // 0: Side
     multiMat.subMaterials.push(matTop);    // 1: Top
     multiMat.subMaterials.push(matBottom); // 2: Bottom
+
+    // Define face colors for directional shading
+    const faceColors = [];
+    faceColors[0] = new BABYLON.Color4(0.8, 0.8, 0.8, 1); // Z+ (North/South)
+    faceColors[1] = new BABYLON.Color4(0.8, 0.8, 0.8, 1); // Z- (North/South)
+    faceColors[2] = new BABYLON.Color4(0.7, 0.7, 0.7, 1); // X+ (East/West)
+    faceColors[3] = new BABYLON.Color4(0.7, 0.7, 0.7, 1); // X- (East/West)
+    faceColors[4] = new BABYLON.Color4(1, 1, 1, 1);       // Y+ (Top)
+    faceColors[5] = new BABYLON.Color4(0.6, 0.6, 0.6, 1); // Y- (Bottom)
 
     // Create box
     // Babylon default face order: 0:Z+, 1:Z-, 2:X+, 3:X-, 4:Y+, 5:Y-
@@ -26,7 +38,7 @@ function renderGroundBlocks(blocks, blockId, texturePath) {
     // Top (4) -> Material 1
     // Bottom (5) -> Material 2
 
-    const mesh = BABYLON.MeshBuilder.CreateBox(`master_${blockId}`, { size: 1 }, scene);
+    const mesh = BABYLON.MeshBuilder.CreateBox(`master_${blockId}`, { size: 1, faceColors: faceColors }, scene);
     mesh.material = multiMat;
 
     // SubMeshes
@@ -58,6 +70,5 @@ function renderGroundBlocks(blocks, blockId, texturePath) {
         matrices.forEach((m, i) => m.copyToArray(buffer, i * 16));
         mesh.thinInstanceSetBuffer("matrix", buffer, 16, true);
         mesh.isVisible = true;
-        shadowGenerator.addShadowCaster(mesh);
     }
 }

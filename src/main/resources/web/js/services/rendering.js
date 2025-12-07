@@ -6,7 +6,7 @@ function initBabylon() {
 
     scene = new BABYLON.Scene(engine);
     scene.clearColor = SKY_COLOR;
-    scene.ambientColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+    scene.ambientColor = new BABYLON.Color3(1, 1, 1);
 
     scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
     scene.fogDensity = 0.008;
@@ -22,21 +22,9 @@ function initBabylon() {
 
     // 1. Hemispheric Light: Handles Top vs Bottom brightness
     const hemiLight = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
-    hemiLight.intensity = 0.8;
+    hemiLight.intensity = 1.0;
     hemiLight.diffuse = new BABYLON.Color3(1, 1, 1);
     hemiLight.groundColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Darker undersides
-
-    // 2. Main "Sun" Light: Provides shading for sides (East/North differentiation)
-    const sunLight = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(-0.6, -1, -0.4), scene);
-    sunLight.position = new BABYLON.Vector3(20, 50, 20);
-    sunLight.intensity = 0.7;
-
-    // 3. Shadow Generator (Soft "Blocky" Shadows)
-    shadowGenerator = new BABYLON.ShadowGenerator(2048, sunLight);
-    shadowGenerator.usePercentageCloserFiltering = true;
-    shadowGenerator.filteringQuality = BABYLON.ShadowGenerator.QUALITY_HIGH;
-    shadowGenerator.setDarkness(0.3);
-    shadowGenerator.bias = 0.0001;
 
     // 4. SSAO (Screen Space Ambient Occlusion) = "Smooth Lighting"
     try {
@@ -50,12 +38,11 @@ function initBabylon() {
     } catch (e) { console.log("SSAO not supported"); }
 
     // Image Processing: Slight contrast boost to make textures pop
-    scene.imageProcessingConfiguration.contrast = 1.2;
+    scene.imageProcessingConfiguration.contrast = 1.0;
     scene.imageProcessingConfiguration.exposure = 1.0;
 
     const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 100, height: 100 }, scene);
     ground.position.y = -0.01;
-    ground.receiveShadows = true;
 
     const gridMat = new BABYLON.StandardMaterial("grid", scene);
     gridMat.diffuseColor = new BABYLON.Color3(0.2, 0.2, 0.2);

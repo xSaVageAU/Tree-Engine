@@ -10,8 +10,18 @@ function renderLeaves(blocks, fullBlockName, blockId, texturePath, biome) {
     leafMat.transparencyMode = BABYLON.Material.MATERIAL_ALPHATEST;
     leafMat.alphaCutoff = 0.5;
     leafMat.backFaceCulling = true;
+    leafMat.useVertexColors = true;
 
-    const leafMesh = BABYLON.MeshBuilder.CreateBox(`master_${blockId}`, { size: 1 }, scene);
+    // Define face colors for directional shading
+    const faceColors = [];
+    faceColors[0] = new BABYLON.Color4(0.8, 0.8, 0.8, 1); // Z+ (North/South)
+    faceColors[1] = new BABYLON.Color4(0.8, 0.8, 0.8, 1); // Z- (North/South)
+    faceColors[2] = new BABYLON.Color4(0.7, 0.7, 0.7, 1); // X+ (East/West)
+    faceColors[3] = new BABYLON.Color4(0.7, 0.7, 0.7, 1); // X- (East/West)
+    faceColors[4] = new BABYLON.Color4(1, 1, 1, 1);       // Y+ (Top)
+    faceColors[5] = new BABYLON.Color4(0.6, 0.6, 0.6, 1); // Y- (Bottom)
+
+    const leafMesh = BABYLON.MeshBuilder.CreateBox(`master_${blockId}`, { size: 1, faceColors: faceColors }, scene);
     leafMesh.material = leafMat;
     leafMesh.isVisible = false;
     masterMeshes[blockId] = leafMesh;
@@ -27,6 +37,5 @@ function renderLeaves(blocks, fullBlockName, blockId, texturePath, biome) {
         matrices.forEach((m, i) => m.copyToArray(buffer, i * 16));
         leafMesh.thinInstanceSetBuffer("matrix", buffer, 16, true);
         leafMesh.isVisible = true;
-        shadowGenerator.addShadowCaster(leafMesh);
     }
 }
