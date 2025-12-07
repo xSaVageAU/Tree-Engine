@@ -302,8 +302,8 @@ class TreeReplacerUI {
                 <option value="">Select tree...</option>
                 ${this.customTrees.map(tree => `<option value="tree_engine:${tree}" ${treeId === `tree_engine:${tree}` ? 'selected' : ''}>${tree}</option>`).join('')}
             </select>
-            <input type="number" class="chance-input" min="0" max="1" step="0.01" value="${chance}" placeholder="Chance" style="width: 80px; margin-left: 10px;">
-            <button class="remove-btn" style="margin-left: 10px;">Remove</button>
+            <input type="number" class="chance-input" min="0" max="1" step="0.01" value="${chance}" placeholder="Chance" style="width: 60px; margin-left: 5px;">
+            <button class="remove-btn" style="margin-left: 5px; width: auto; padding: 5px 8px;">X</button>
         `;
         entry.querySelector('.remove-btn').addEventListener('click', () => {
             entry.remove();
@@ -324,7 +324,7 @@ class TreeReplacerUI {
                 <option value="">Select tree...</option>
                 ${this.customTrees.map(tree => `<option value="tree_engine:${tree}" ${treeId === `tree_engine:${tree}` ? 'selected' : ''}>${tree}</option>`).join('')}
             </select>
-            <button class="remove-btn" style="margin-left: 10px;">Remove</button>
+            <button class="remove-btn" style="margin-left: 5px; width: auto; padding: 5px 8px;">X</button>
         `;
         entry.querySelector('.remove-btn').addEventListener('click', () => {
             entry.remove();
