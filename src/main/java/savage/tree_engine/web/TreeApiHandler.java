@@ -536,8 +536,11 @@ public class TreeApiHandler implements HttpHandler {
                 return;
             }
 
-            if (replacer.default_tree == null || replacer.default_tree.isEmpty()) {
-                sendError(exchange, 400, "Default tree must be specified");
+            if ("WEIGHTED".equals(replacer.type) && (replacer.default_tree == null || replacer.default_tree.isEmpty())) {
+                sendError(exchange, 400, "Default tree must be specified for weighted replacer");
+                return;
+            } else if ("SIMPLE".equals(replacer.type) && (replacer.features == null || replacer.features.isEmpty())) {
+                sendError(exchange, 400, "At least one tree must be specified for simple replacer");
                 return;
             }
             

@@ -329,35 +329,50 @@ public class RegistryUtils {
     }
 
     /**
-     * Create a random_selector ConfiguredFeature from a TreeReplacer.
+     * Create a random_selector or simple_random_selector ConfiguredFeature from a TreeReplacer.
      */
     private static ConfiguredFeature<?, ?> createRandomSelectorFeature(MinecraftServer server, TreeReplacerManager.TreeReplacer replacer) {
         try {
-            // Create the JSON structure for a random_selector
             JsonObject feature = new JsonObject();
-            feature.addProperty("type", "minecraft:random_selector");
-            JsonObject configObj = new JsonObject();
-
-            // Set default tree
-            configObj.addProperty("default", replacer.default_tree);
-
-            // Add alternatives as features
-            JsonArray featuresArray = new JsonArray();
-            for (TreeReplacerManager.TreeReplacer.Alternative alt : replacer.alternatives) {
-                JsonObject entry = new JsonObject();
-                entry.addProperty("chance", alt.chance);
-                entry.addProperty("feature", alt.feature);
-                featuresArray.add(entry);
+            
+            if ("SIMPLE".equals(replacer.type)) {
+                // Create simple_random_selector
+                feature.addProperty("type", "minecraft:simple_random_selector");
+                JsonObject configObj = new JsonObject();
+                
+                JsonArray featuresArray = new JsonArray();
+                if (replacer.features != null) {
+                    for (String feat : replacer.features) {
+                        featuresArray.add(feat);
+                    }
+                }
+                configObj.add("features", featuresArray);
+                feature.add("config", configObj);
+            } else {
+                // Create random_selector (Weighted)
+                feature.addProperty("type", "minecraft:random_selector");
+                JsonObject configObj = new JsonObject();
+                // Set default tree
+                configObj.addProperty("default", replacer.default_tree);
+                // Add alternatives as features
+                JsonArray featuresArray = new JsonArray();
+                if (replacer.alternatives != null) {
+                    for (TreeReplacerManager.TreeReplacer.Alternative alt : replacer.alternatives) {
+                        JsonObject entry = new JsonObject();
+                        entry.addProperty("chance", alt.chance);
+                        entry.addProperty("feature", alt.feature);
+                        featuresArray.add(entry);
+                    }
+                }
+                configObj.add("features", featuresArray);
+                feature.add("config", configObj);
             }
-            configObj.add("features", featuresArray);
-            feature.add("config", configObj);
-
             // Parse the JSON into a ConfiguredFeature
             RegistryOps<JsonElement> ops = RegistryOps.of(JsonOps.INSTANCE, server.getRegistryManager());
             DataResult<ConfiguredFeature<?, ?>> result = ConfiguredFeature.CODEC.parse(ops, feature);
-            return result.getOrThrow(s -> new RuntimeException("Failed to parse random selector feature: " + s));
+            return result.getOrThrow(s -> new RuntimeException("Failed to parse replacement feature: " + s));
         } catch (Exception e) {
-            TreeEngine.LOGGER.error("Failed to create random selector feature", e);
+            TreeEngine.LOGGER.error("Failed to create replacement feature", e);
             return null;
         }
     }

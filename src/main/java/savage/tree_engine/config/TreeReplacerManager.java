@@ -30,7 +30,10 @@ public class TreeReplacerManager {
         public String id;
         public String vanilla_tree_id;
         public String default_tree;
+
         public List<Alternative> alternatives;
+        public String type = "WEIGHTED"; // "WEIGHTED" or "SIMPLE"
+        public List<String> features; // For SIMPLE type
 
         public TreeReplacer() {
             this.alternatives = new ArrayList<>();
@@ -41,6 +44,7 @@ public class TreeReplacerManager {
             this.vanilla_tree_id = vanillaTreeId;
             this.default_tree = defaultTree;
             this.alternatives = alternatives != null ? alternatives : new ArrayList<>();
+            this.features = new ArrayList<>();
         }
 
         /**
@@ -154,6 +158,7 @@ public class TreeReplacerManager {
         TreeReplacer replacer = new TreeReplacer();
 
         if (type.equals("minecraft:random_selector")) {
+            replacer.type = "WEIGHTED";
             if (!json.has("config")) return null;
             JsonObject config = json.getAsJsonObject("config");
 
@@ -176,33 +181,22 @@ public class TreeReplacerManager {
                 }
             }
         } else if (type.equals("minecraft:simple_random_selector")) {
-            // Legacy: convert to new format with equal chances
+            replacer.type = "SIMPLE";
             if (!json.has("config")) return null;
             JsonObject config = json.getAsJsonObject("config");
 
             if (!config.has("features")) return null;
             JsonArray features = config.getAsJsonArray("features");
 
-            // Use first feature as default, others as alternatives with equal chance
-            List<String> featureList = new ArrayList<>();
+            // Store features directly for SIMPLE type
+            replacer.features = new ArrayList<>();
             for (JsonElement element : features) {
                 if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
-                    featureList.add(element.getAsString());
+                    replacer.features.add(element.getAsString());
                 } else if (element.isJsonObject()) {
                     JsonObject entry = element.getAsJsonObject();
                     if (entry.has("feature")) {
-                        featureList.add(entry.get("feature").getAsString());
-                    }
-                }
-            }
-
-            if (!featureList.isEmpty()) {
-                replacer.default_tree = featureList.get(0);
-                replacer.alternatives = new ArrayList<>();
-                if (featureList.size() > 1) {
-                    double equalChance = 1.0 / (featureList.size() - 1);
-                    for (int i = 1; i < featureList.size(); i++) {
-                        replacer.alternatives.add(new TreeReplacer.Alternative(equalChance, featureList.get(i)));
+                        replacer.features.add(entry.get("feature").getAsString());
                     }
                 }
             }
@@ -291,28 +285,48 @@ public class TreeReplacerManager {
 
         // Generate the configured feature JSON
         JsonObject feature = new JsonObject();
-        feature.addProperty("type", "minecraft:random_selector");
-
-        JsonObject configObj = new JsonObject();
-
-        // Set default tree
-        if (replacer.default_tree != null && !replacer.default_tree.isEmpty()) {
-            configObj.addProperty("default", replacer.default_tree);
+        // Generate based on type
+        if ("SIMPLE".equals(replacer.type)) {
+            feature.addProperty("type", "minecraft:simple_random_selector");
+            
+            JsonObject configObj = new JsonObject();
+            JsonArray featuresArray = new JsonArray();
+            
+            if (replacer.features != null) {
+                for (String feat : replacer.features) {
+                    featuresArray.add(feat);
+                }
+            }
+            
+            configObj.add("features", featuresArray);
+            feature.add("config", configObj);
         } else {
-            throw new IllegalArgumentException("Default tree must be specified");
-        }
+            // Default to WEIGHTED
+            feature.addProperty("type", "minecraft:random_selector");
 
-        // Set alternatives
-        JsonArray featuresArray = new JsonArray();
-        for (TreeReplacer.Alternative alt : replacer.alternatives) {
-            JsonObject entry = new JsonObject();
-            entry.addProperty("chance", alt.chance);
-            entry.addProperty("feature", alt.feature);
-            featuresArray.add(entry);
-        }
+            JsonObject configObj = new JsonObject();
 
-        configObj.add("features", featuresArray);
-        feature.add("config", configObj);
+            // Set default tree
+            if (replacer.default_tree != null && !replacer.default_tree.isEmpty()) {
+                configObj.addProperty("default", replacer.default_tree);
+            } else {
+                throw new IllegalArgumentException("Default tree must be specified for weighted replacer");
+            }
+
+            // Set alternatives
+            JsonArray featuresArray = new JsonArray();
+            if (replacer.alternatives != null) {
+                for (TreeReplacer.Alternative alt : replacer.alternatives) {
+                    JsonObject entry = new JsonObject();
+                    entry.addProperty("chance", alt.chance);
+                    entry.addProperty("feature", alt.feature);
+                    featuresArray.add(entry);
+                }
+            }
+
+            configObj.add("features", featuresArray);
+            feature.add("config", configObj);
+        }
 
         // Write the file
         String json = GSON.toJson(feature);
