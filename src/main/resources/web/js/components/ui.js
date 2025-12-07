@@ -59,6 +59,47 @@ function setupUI() {
     document.getElementById('btn_rotate')?.addEventListener('click', toggleRotation);
     document.getElementById('btn_reset_camera')?.addEventListener('click', resetCamera);
 
+    // Background color picker
+    const bgColorPicker = document.getElementById('bg_color_picker');
+    if (bgColorPicker) {
+        bgColorPicker.addEventListener('input', (e) => {
+            if (scene) {
+                const color = BABYLON.Color3.FromHexString(e.target.value);
+                scene.clearColor = color;
+                scene.fogColor = color;
+            }
+        });
+    }
+
+    // Unlit mode toggle
+    const btnUnlit = document.getElementById('btn_unlit');
+    let isUnlit = false;
+    if (btnUnlit) {
+        btnUnlit.addEventListener('click', () => {
+            isUnlit = !isUnlit;
+            const hemiLight = scene.getLightByName("hemi");
+            const sunLight = scene.getLightByName("sun");
+
+            if (isUnlit) {
+                // Unlit Mode: Bright, flat lighting
+                scene.ambientColor = new BABYLON.Color3(1, 1, 1);
+                if (hemiLight) hemiLight.intensity = 1.0;
+                if (sunLight) sunLight.setEnabled(false);
+                scene.imageProcessingConfiguration.contrast = 1.0;
+                scene.imageProcessingConfiguration.exposure = 1.0;
+                btnUnlit.classList.add('active');
+            } else {
+                // Lit Mode: Default atmospheric lighting
+                scene.ambientColor = new BABYLON.Color3(0.5, 0.5, 0.5);
+                if (hemiLight) hemiLight.intensity = 0.8;
+                if (sunLight) sunLight.setEnabled(true);
+                scene.imageProcessingConfiguration.contrast = 1.2;
+                scene.imageProcessingConfiguration.exposure = 1.0;
+                btnUnlit.classList.remove('active');
+            }
+        });
+    }
+
     // Auth token UI
     setupAuthTokenUI();
 }
