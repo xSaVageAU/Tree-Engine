@@ -1,7 +1,7 @@
 # Tree Engine
 
 ![Fabric](https://img.shields.io/badge/Fabric-1.21.10-cream?logo=fabric)
-![License](https://img.shields.io/badge/License-CC0-green)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 **Tree Engine** is a development tool for Minecraft that bridges the gap between in-game world generation and a modern desktop editor. It lets you design, visualize, and implement custom trees and world-generation features in real-time without restarting your server.
 
@@ -97,4 +97,4 @@ If you encounter any issues or have questions about the project, please feel fre
 
 ## License
 
-This project is licensed under **CC0-1.0**.
+This project is licensed under the **MIT License**.

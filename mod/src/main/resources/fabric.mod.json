@@ -10,7 +10,7 @@
 	"contact": {
 		"sources": "https://github.com/xSaVageAU/Tree-Engine"
 	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/tree-engine/icon.png",
 	"environment": "*",
 	"entrypoints": {
