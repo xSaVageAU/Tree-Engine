@@ -226,6 +226,27 @@ func (a *App) StartServer() {
 		return
 	}
 
+	// Backfill GamePort for instances set up before it existed.
+	if state.GamePort == 0 {
+		gamePort, err := instance.FindFreePort(25565)
+		if err != nil {
+			a.emitStatus(PhaseError, fmt.Sprintf("Failed to find a free game port: %v", err))
+			return
+		}
+		state.GamePort = gamePort
+		if err := state.Save(a.layout.StateFile); err != nil {
+			a.emitStatus(PhaseError, fmt.Sprintf("Failed to save launcher state: %v", err))
+			return
+		}
+	}
+	// Rewritten every start (not just at initial setup) so an existing
+	// instance always picks up the fast-boot world tuning without a full
+	// re-setup - see WriteServerProperties.
+	if err := instance.WriteServerProperties(a.layout, state.GamePort); err != nil {
+		a.emitStatus(PhaseError, fmt.Sprintf("Failed to write server.properties: %v", err))
+		return
+	}
+
 	a.emitStatus(PhaseStarting, "Starting server...")
 
 	proc, err := serverproc.Launch(a.ctx, serverproc.Options{

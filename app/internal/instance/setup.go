@@ -91,6 +91,14 @@ func Run(ctx context.Context, l Layout, eulaAccepted bool, progress ProgressFunc
 		return nil, fmt.Errorf("failed to write mod config: %w", err)
 	}
 
+	gamePort, err := FindFreePort(25565)
+	if err != nil {
+		return nil, err
+	}
+	if err := WriteServerProperties(l, gamePort); err != nil {
+		return nil, fmt.Errorf("failed to write server.properties: %w", err)
+	}
+
 	state := &State{
 		SetupComplete:    true,
 		JavaPath:         javaPath,
@@ -100,6 +108,7 @@ func Run(ctx context.Context, l Layout, eulaAccepted bool, progress ProgressFunc
 		FabricApiVersion: resolvedApiVersion,
 		ModVersion:       manifest.ModVersion,
 		Port:             port,
+		GamePort:         gamePort,
 		AuthToken:        authToken,
 	}
 	if err := state.Save(l.StateFile); err != nil {

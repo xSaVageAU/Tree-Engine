@@ -54,6 +54,10 @@ func (l Layout) ServerJarPath() string {
 	return filepath.Join(l.InstanceDir, "fabric-server-launch.jar")
 }
 
+func (l Layout) ServerPropertiesPath() string {
+	return filepath.Join(l.InstanceDir, "server.properties")
+}
+
 func (l Layout) EnsureDirs() error {
 	dirs := []string{l.Root, l.InstanceDir, l.ModsDir(), l.TreeEngineConfigDir()}
 	for _, d := range dirs {

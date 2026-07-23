@@ -16,7 +16,8 @@ type State struct {
 	InstallerVersion string `json:"installerVersion"`
 	FabricApiVersion string `json:"fabricApiVersion"`
 	ModVersion       string `json:"modVersion"`
-	Port             int    `json:"port"`
+	Port             int    `json:"port"`     // the mod's own HTTP API port, not Minecraft's
+	GamePort         int    `json:"gamePort"` // Minecraft's server-port (server.properties) - randomized so it never collides with a real Minecraft server on the default 25565
 	AuthToken        string `json:"authToken"`
 }
 
