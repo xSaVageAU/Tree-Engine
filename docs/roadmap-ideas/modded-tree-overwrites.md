@@ -60,7 +60,7 @@ The save handler must stop enforcing the `tree_engine` namespace and instead par
 
 ## 4. Frontend Implementation
 
-### UI Workflow (`tree-manager.js`)
+### UI Workflow (Svelte `TreeEditor`/`ImportModal` components, `app/frontend/src/lib/`)
 1.  **Import Modal**: Add a new button **"Overwrite"** next to "Import".
 2.  **State Initialization**:
     *   Fetch raw JSON from `/api/vanilla_tree/{id}`.
