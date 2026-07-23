@@ -50,6 +50,7 @@ export class TreePreview {
 		this.viewDist = Math.max(8, Math.max(...built.size) * 1.4)
 		applyBiomeTint(this.currentBiome)
 		this.renderer = new StructureRenderer(gl, built.structure, resources)
+		this.fixAtlasFiltering()
 		this.attachControls(canvas)
 		this.resize(canvas)
 	}
@@ -82,6 +83,7 @@ export class TreePreview {
 		this.viewDist = Math.max(8, Math.max(...built.size) * 1.4)
 		applyBiomeTint(biome)
 		this.renderer = new StructureRenderer(this.gl, built.structure, this.resources)
+		this.fixAtlasFiltering()
 		this.requestRender()
 	}
 
@@ -91,7 +93,26 @@ export class TreePreview {
 		this.currentBiome = biome
 		applyBiomeTint(biome)
 		this.renderer = new StructureRenderer(this.gl, this.structure.structure, this.resources)
+		this.fixAtlasFiltering()
 		this.requestRender()
+	}
+
+	// deepslate's StructureRenderer mipmaps the atlas texture but only ever sets
+	// TEXTURE_MAG_FILTER, leaving TEXTURE_MIN_FILTER at its WebGL default
+	// (NEAREST_MIPMAP_LINEAR). Because atlas cells are packed edge-to-edge with
+	// no padding, generating mipmaps averages texels *across* cell boundaries -
+	// baking neighbouring textures (e.g. a log's top face) into a block's lower
+	// mip levels. That's invisible head-on but shows up as texture bleed at
+	// grazing angles, where the GPU's automatic LOD selection picks a coarser
+	// mip. Forcing NEAREST (no mipmapping) means only mip level 0 - the exact
+	// atlas pixels - is ever sampled, matching the already-NEAREST mag filter.
+	private fixAtlasFiltering(): void {
+		// atlasTexture is marked `private` in deepslate's .d.ts (API-surface
+		// hiding only - it's a plain assigned field at runtime, not a real JS
+		// #private, so this cast just reaches past the type declaration).
+		const texture = (this.renderer as unknown as { atlasTexture: WebGLTexture }).atlasTexture
+		this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
+		this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST)
 	}
 
 	setShowGrid(enabled: boolean): void {
