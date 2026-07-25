@@ -598,6 +598,7 @@
 			if (seq !== genSeq) return
 			const err = e as BackendError
 			doc.status = { message: err.message, error: true, details: err.detail ?? '' }
+			worldInfo = ''
 		} finally {
 			if (seq === genSeq) generating = false
 		}
@@ -1161,12 +1162,18 @@
 							<div class="floating-error">
 								<Icon name="alert" size={14} /><span>Asset provisioning failed: {assetsError}</span>
 							</div>
-						{:else if activeTree?.status.error && activeTree.status.details}
+						{:else if activeDoc?.status.error}
+							<!-- Any failing document, not just a tree, and shown whether or
+							     not there is extra detail: an error with no detail text
+							     used to render nothing at all, which made a failed world
+							     preview look like a button that simply did nothing. -->
 							<div class="floating-error">
 								<Icon name="alert" size={14} />
 								<div>
-									<div>{activeTree.status.message}</div>
-									<div class="error-details mono">{activeTree.status.details}</div>
+									<div>{activeDoc.status.message}</div>
+									{#if activeDoc.status.details}
+										<div class="error-details mono">{activeDoc.status.details}</div>
+									{/if}
 								</div>
 							</div>
 						{/if}

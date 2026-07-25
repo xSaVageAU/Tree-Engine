@@ -14,6 +14,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeManager;
@@ -275,9 +276,29 @@ public final class CaptureLevel implements WorldGenLevel {
 		return null;
 	}
 
+	/**
+	 * No light engine; the defaults that would use one are overridden below.
+	 */
 	@Override
 	public LevelLightEngine getLightEngine() {
 		return null;
+	}
+
+	/**
+	 * Zero, matching what real generation reports while features are being
+	 * placed - chunks are lit after decoration, so a feature asking about
+	 * light during placement sees nothing propagated yet. Also stops a
+	 * decorator that queries light (snow and ice, for one) from dereferencing
+	 * the absent engine.
+	 */
+	@Override
+	public int getBrightness(LightLayer layer, BlockPos pos) {
+		return 0;
+	}
+
+	@Override
+	public int getRawBrightness(BlockPos pos, int amount) {
+		return 0;
 	}
 
 	@Override

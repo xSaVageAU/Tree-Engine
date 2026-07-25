@@ -16,6 +16,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.WorldGenLevel;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeManager;
@@ -439,9 +440,38 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 		return null;
 	}
 
+	/**
+	 * There is no light engine, and the two default methods that would ask for
+	 * one are overridden below so nothing ever dereferences this.
+	 *
+	 * Returning null here used to crash any preview in a cold biome:
+	 * SnowAndFreezeFeature asks whether water should freeze, which reads block
+	 * light, which went straight through getLightEngine().
+	 */
 	@Override
 	public LevelLightEngine getLightEngine() {
 		return null;
+	}
+
+	/**
+	 * Light levels as they stand while features are being placed: zero.
+	 *
+	 * This is not a stand-in for real lighting, it is what real generation
+	 * reports at this point. Chunks are lit after decoration - the status
+	 * order is SURFACE, CARVERS, FEATURES, INITIALIZE_LIGHT, LIGHT - so a
+	 * feature asking about light during placement sees an engine that has not
+	 * propagated anything yet. Matching that keeps placement decisions the
+	 * same as the game's, which is the point: it is why water in a snowy biome
+	 * freezes during generation, and it will here too.
+	 */
+	@Override
+	public int getBrightness(LightLayer layer, BlockPos pos) {
+		return 0;
+	}
+
+	@Override
+	public int getRawBrightness(BlockPos pos, int amount) {
+		return 0;
 	}
 
 	@Override
