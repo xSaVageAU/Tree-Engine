@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte'
 	import type { ModConnection } from '../renderer/mod-client'
-	import { listVanillaTrees } from '../renderer/mod-client'
+	import { listFeatures } from '../renderer/mod-client'
 	import { ImportDatapackFolder, ImportDatapackZip } from '../../wailsjs/go/main/App'
 	import Icon from './Icon.svelte'
 
@@ -25,7 +25,9 @@
 	let installingDatapack = $state(false)
 
 	function loadTrees(): void {
-		listVanillaTrees(conn)
+		// Tree features the running game knows about - vanilla plus anything
+		// an installed datapack adds.
+		listFeatures(conn, { treesOnly: true })
 			.then((ids) => (allTrees = ids))
 			.catch((e) => (loadError = e.message))
 	}

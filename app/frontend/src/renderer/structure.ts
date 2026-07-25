@@ -1,10 +1,10 @@
-// Converts the mod's /api/generate output into a deepslate Structure.
+// Converts the backend's preview output into a deepslate Structure.
 //
-// The mod runs the real Minecraft generation logic in its PhantomWorld and
-// returns a flat list of placed blockstates (see mod BlockInfo.toJson):
-// { x, y, z, blockState: { Name, Properties? } }. deepslate's Structure is a
-// bounded voxel grid, so we translate every block to a zero-based local origin
-// and record the distinct (name, properties) specs the resource loader needs.
+// The backend runs the real Minecraft generation logic and returns a flat list
+// of placed blockstates (see BlockDto.java): { x, y, z, name, properties? }.
+// deepslate's Structure is a bounded voxel grid, so we translate every block to
+// a zero-based local origin and record the distinct (name, properties) specs
+// the resource loader needs.
 
 import { Structure } from 'deepslate'
 
@@ -12,10 +12,8 @@ export interface ApiBlock {
 	x: number
 	y: number
 	z: number
-	blockState: {
-		Name: string
-		Properties?: Record<string, string>
-	}
+	name: string
+	properties?: Record<string, string> | null
 }
 
 // A distinct blockstate that appears in the structure - the unit the asset
@@ -64,11 +62,11 @@ export function buildStructure(blocks: ApiBlock[]): BuiltStructure {
 	const specs = new Map<string, BlockSpec>()
 
 	for (const b of blocks) {
-		const properties = b.blockState.Properties ?? {}
-		structure.addBlock([b.x - minX, b.y - minY, b.z - minZ], b.blockState.Name, properties)
-		const key = b.blockState.Name + '|' + JSON.stringify(properties)
+		const properties = b.properties ?? {}
+		structure.addBlock([b.x - minX, b.y - minY, b.z - minZ], b.name, properties)
+		const key = b.name + '|' + JSON.stringify(properties)
 		if (!specs.has(key)) {
-			specs.set(key, { name: b.blockState.Name, properties })
+			specs.set(key, { name: b.name, properties })
 		}
 	}
 

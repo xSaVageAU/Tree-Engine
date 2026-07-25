@@ -13,22 +13,26 @@
 	// files share one Doc/tab (one save action, one rename) but are reachable as
 	// two separate real-looking entries in the explorer.
 	import { onDestroy, onMount, tick } from 'svelte'
-	import { CloseProject, EnsureAssets, GetCurrentProject, OpenInstanceFolder, OpenProjectFolder } from '../../wailsjs/go/main/App'
+	import { EnsureAssets, GetCurrentProject, OpenInstanceFolder } from '../../wailsjs/go/main/App'
+	import {
+		BackendError,
+		getFeature,
+		previewTree,
+		type ModConnection,
+	} from '../renderer/mod-client'
 	import {
 		deleteTree,
-		GenerateError,
-		generateTree,
+		closeProject as closeProjectRequest,
+		ensureSession,
+		openProjectFolder,
 		getPlacement,
 		getTree,
-		getVanillaTree,
-		hotReload,
-		listTrees,
 		listReplacers,
+		listTrees,
 		savePlacement,
 		saveTree,
-		type ModConnection,
 		type Replacer,
-	} from '../renderer/mod-client'
+	} from '../renderer/project-client'
 	import { BIOME_COLORS, DEFAULT_BIOME } from '../renderer/biome-colors'
 	import { TreePreview } from '../renderer/preview'
 	import type { ApiBlock } from '../renderer/structure'
@@ -43,20 +47,10 @@
 
 	const REPLACERS_KEY = 'replacers'
 
-	function defaultTreeConfig() {
-		return {
-			type: 'minecraft:tree',
-			config: {
-				trunk_provider: { type: 'minecraft:simple_state_provider', state: { Name: 'minecraft:oak_log' } },
-				dirt_provider: { type: 'minecraft:simple_state_provider', state: { Name: 'minecraft:dirt' } },
-				foliage_provider: { type: 'minecraft:simple_state_provider', state: { Name: 'minecraft:oak_leaves' } },
-				trunk_placer: { type: 'minecraft:straight_trunk_placer', base_height: 4, height_rand_a: 2, height_rand_b: 0 },
-				foliage_placer: { type: 'minecraft:blob_foliage_placer', radius: 2, offset: 0, height: 3 },
-				minimum_size: { type: 'minecraft:two_layers_feature_size', limit: 1, lower_size: 0, upper_size: 1 },
-				decorators: [],
-			},
-		}
-	}
+	// The starting point for a new tree, taken from the game's own registry.
+	// Hardcoding it here is what broke "New Tree" on 26.2 - the literal still
+	// carried the pre-26.2 shape - so the template is fetched instead of typed.
+	const NEW_TREE_TEMPLATE = 'minecraft:oak'
 
 	interface DocStatus {
 		message: string
@@ -108,7 +102,6 @@
 
 	let generating = $state(false)
 	let saving = $state(false)
-	let hotReloading = $state(false)
 	let cursor = $state({ line: 1, column: 1 })
 
 	let assetsBaseURL = $state('')
@@ -184,12 +177,12 @@
 
 	async function refreshLibrary(): Promise<void> {
 		try {
-			trees = await listTrees(conn)
+			trees = await listTrees()
 		} catch (e) {
 			console.error('Failed to load trees', e)
 		}
 		try {
-			replacers = await listReplacers(conn)
+			replacers = await listReplacers()
 		} catch (e) {
 			console.error('Failed to load replacers', e)
 		}
@@ -222,10 +215,10 @@
 			return
 		}
 		try {
-			const treeJson = await getTree(conn, id)
+			const treeJson = JSON.parse(await getTree(id))
 			let placementJson: any
 			try {
-				placementJson = await getPlacement(conn, id)
+				placementJson = JSON.parse(await getPlacement(id))
 			} catch {
 				placementJson = { feature: `tree_engine:${id}`, placement: [] }
 			}
@@ -251,15 +244,21 @@
 		}
 	}
 
-	function newTree(): void {
+	async function newTree(): Promise<void> {
 		untitledSeq++
 		const key = `new:${untitledSeq}`
+		let treeText = '{}'
+		try {
+			treeText = JSON.stringify(await getFeature(conn, NEW_TREE_TEMPLATE), null, 2)
+		} catch (e) {
+			console.error('Failed to fetch the new-tree template', e)
+		}
 		docs = [
 			...docs,
 			makeDoc({
 				key,
 				kind: 'tree',
-				treeText: JSON.stringify(defaultTreeConfig(), null, 2),
+				treeText,
 				placementText: JSON.stringify({ feature: 'tree_engine:', placement: [] }, null, 2),
 			}),
 		]
@@ -269,7 +268,7 @@
 	async function importVanillaTree(id: string): Promise<void> {
 		importModalOpen = false
 		try {
-			const featureJson = await getVanillaTree(conn, id)
+			const featureJson = await getFeature(conn, id)
 			const name = id.includes(':') ? id.split(':')[1] : id
 			untitledSeq++
 			const key = `new:${untitledSeq}`
@@ -370,13 +369,37 @@
 		}
 	}
 
+	// A project's session and cached geometry belong to that project. Dropping
+	// them on a switch stops the next preview resolving against the datapack of
+	// the project just left.
+	async function switchProject(): Promise<void> {
+		blockCache.clear()
+		await openProjectFolder()
+	}
+
+	async function closeProject(): Promise<void> {
+		blockCache.clear()
+		await closeProjectRequest()
+	}
+
 	// --- Generation ----------------------------------------------------------
 
 	let genSeq = 0
 	let genTimer: ReturnType<typeof setTimeout> | undefined
 
-	function scheduleGenerate(immediate = false): void {
+	// Generation is seeded, so the same config and seed always produce the same
+	// tree. That is what makes editing legible: tweaking a value shows the
+	// effect of the tweak rather than a differently-shuffled tree. Rerolling is
+	// therefore an explicit action, not a side effect of typing.
+	let previewSeed = $state(Math.floor(Math.random() * 2 ** 31))
+
+	function rerollSeed(): void {
+		previewSeed = Math.floor(Math.random() * 2 ** 31)
+	}
+
+	function scheduleGenerate(immediate = false, reroll = false): void {
 		clearTimeout(genTimer)
+		if (reroll) rerollSeed()
 		if (immediate) {
 			void runGenerate()
 			return
@@ -385,7 +408,21 @@
 		genTimer = setTimeout(() => void runGenerate(), 300)
 	}
 
-	async function renderBlocks(blocks: ApiBlock[]): Promise<void> {
+	// Renders are serialised through this chain. Two generations can finish
+	// close enough together that both reach the renderer while the first is
+	// still awaiting - which previously let both see a missing preview and
+	// construct one, double-registering the resize listener and leaving which
+	// render landed last up to chance. Chaining makes the last call win.
+	let renderChain: Promise<void> = Promise.resolve()
+
+	function renderBlocks(blocks: ApiBlock[]): Promise<void> {
+		renderChain = renderChain
+			.catch(() => {})
+			.then(() => applyBlocks(blocks))
+		return renderChain
+	}
+
+	async function applyBlocks(blocks: ApiBlock[]): Promise<void> {
 		await tick()
 		if (!canvasEl || !assetsBaseURL) return
 		if (!preview) {
@@ -418,21 +455,43 @@
 		const started = performance.now()
 
 		try {
-			let blocks = await generateTree(conn, feature)
+			// A session is optional. It is null for a project with nothing
+			// saved yet, and a failure to build one must not block previewing
+			// the buffer in front of you - a broken file elsewhere in the
+			// project would otherwise take the whole preview down with it.
+			let sessionId: string | null = null
+			let sessionNote = ''
+			try {
+				sessionId = await ensureSession(conn)
+			} catch (e) {
+				sessionNote = ' (project datapack failed to load)'
+				console.error('Failed to build preview session', e)
+			}
+
+			const result = await previewTree(conn, {
+				sessionId: sessionId ?? undefined,
+				feature,
+				biome,
+				seed: previewSeed,
+			})
 			if (seq !== genSeq) return
-			blocks = blocks.filter((b) => b.blockState.Name !== 'minecraft:air')
+			const blocks = result.blocks.filter((b) => b.name !== 'minecraft:air')
 
 			const target = docs.find((d) => d.key === docKey)
 			if (!target) return
 			blockCache.set(docKey, blocks)
 			target.blockCount = blocks.length
 			target.genMs = Math.round(performance.now() - started)
-			target.status = { message: `Generated ${blocks.length} blocks`, error: false, details: '' }
+			target.status = {
+				message: `Generated ${blocks.length} blocks${sessionNote}`,
+				error: sessionNote !== '',
+				details: '',
+			}
 			if (activeKey === docKey) await renderBlocks(blocks)
 		} catch (e) {
 			if (seq !== genSeq) return
-			const err = e as GenerateError
-			doc.status = { message: err.message, error: true, details: err.details ?? '' }
+			const err = e as BackendError
+			doc.status = { message: err.message, error: true, details: err.detail ?? '' }
 		} finally {
 			if (seq === genSeq) generating = false
 		}
@@ -442,8 +501,7 @@
 
 	// Saves a specific document (not necessarily the active one - the
 	// close-confirmation dialog can save a background tab). Returns whether the
-	// file actually made it to disk; a hot-reload failure afterward still counts
-	// as a successful save.
+	// file actually made it to disk.
 	async function saveDoc(d: Doc): Promise<boolean> {
 		const name = d.name.trim().toLowerCase()
 		if (!name) {
@@ -474,7 +532,7 @@
 
 		saving = true
 		try {
-			await saveTree(conn, name, treeJson)
+			await saveTree(name, JSON.stringify(treeJson, null, 2))
 
 			// Keep the placed feature pointing at the (possibly renamed) tree, and
 			// reflect that in the buffer rather than silently diverging from it.
@@ -485,7 +543,7 @@
 					d.placementText = rewritten
 					setModelText(docUri(d, 'placement'), rewritten)
 				}
-				await savePlacement(conn, name, placementJson).catch((e) => console.error('Failed to save placement:', e))
+				await savePlacement(name, JSON.stringify(placementJson, null, 2)).catch((e) => console.error('Failed to save placement:', e))
 			}
 
 			d.savedTreeText = d.treeText
@@ -496,12 +554,9 @@
 			else d.id = name
 
 			await refreshLibrary()
-			try {
-				await hotReload(conn)
-				d.status = { message: 'Saved and hot-reloaded', error: false, details: '' }
-			} catch {
-				d.status = { message: 'Saved (hot reload failed)', error: true, details: '' }
-			}
+			// Saving writes datapack files directly; the next preview picks
+			// them up by uploading a fresh session. Nothing to reload.
+			d.status = { message: 'Saved', error: false, details: '' }
 			return true
 		} catch (e) {
 			d.status = { message: 'Failed to save: ' + (e as Error).message, error: true, details: '' }
@@ -551,23 +606,11 @@
 		if (!d?.id) return
 		if (!confirm(`Delete "${d.id}"? This removes the file from the datapack.`)) return
 		try {
-			await deleteTree(conn, d.id)
+			await deleteTree(d.id)
 			await refreshLibrary()
 			closeDoc(d.key)
 		} catch (e) {
 			alert('Error deleting tree: ' + (e as Error).message)
-		}
-	}
-
-	async function runHotReload(): Promise<void> {
-		hotReloading = true
-		try {
-			await hotReload(conn)
-			if (activeTree) activeTree.status = { message: 'Registries hot-reloaded', error: false, details: '' }
-		} catch (e) {
-			if (activeTree) activeTree.status = { message: 'Hot reload failed: ' + (e as Error).message, error: true, details: '' }
-		} finally {
-			hotReloading = false
 		}
 	}
 
@@ -615,7 +658,7 @@
 	// --- Commands ------------------------------------------------------------
 
 	const commands = $derived<Command[]>([
-		{ id: 'new', label: 'New Tree', icon: 'plus', keybinding: 'Ctrl+N', run: newTree },
+		{ id: 'new', label: 'New Tree', icon: 'plus', keybinding: 'Ctrl+N', run: () => void newTree() },
 		{ id: 'import', label: 'Import Tree...', icon: 'import', run: () => (importModalOpen = true) },
 		{ id: 'replacers', label: 'Open Tree Replacers', icon: 'shuffle', run: openReplacers },
 		{ id: 'save', label: 'Save Tree', icon: 'save', keybinding: 'Ctrl+S', run: () => void saveActive() },
@@ -625,9 +668,8 @@
 			label: 'Regenerate Preview',
 			icon: 'refresh',
 			keybinding: 'Ctrl+Enter',
-			run: () => scheduleGenerate(true),
+			run: () => scheduleGenerate(true, true),
 		},
-		{ id: 'hot-reload', label: 'Hot Reload Registries', icon: 'bolt', run: () => void runHotReload() },
 		{ id: 'benchmark', label: 'Run Benchmark', icon: 'bolt', run: () => (benchmarkModalOpen = true) },
 		{ id: 'toggle-grid', label: 'Toggle Grid', icon: 'grid', run: toggleShowGrid },
 		{ id: 'toggle-rotate', label: 'Toggle Auto-Rotate', icon: 'orbit', run: toggleAutoRotate },
@@ -641,8 +683,8 @@
 		},
 		{ id: 'refresh', label: 'Refresh Library', icon: 'refresh', run: () => void refreshLibrary() },
 		{ id: 'folder', label: 'Open Instance Folder', icon: 'folder', run: () => OpenInstanceFolder() },
-		{ id: 'switch-project', label: 'Switch Project...', icon: 'folder', run: () => void OpenProjectFolder() },
-		{ id: 'close-project', label: 'Close Project', icon: 'close', run: () => void CloseProject() },
+		{ id: 'switch-project', label: 'Switch Project...', icon: 'folder', run: () => void switchProject() },
+		{ id: 'close-project', label: 'Close Project', icon: 'close', run: () => void closeProject() },
 	])
 
 	const fileCommands = $derived<Command[]>(
@@ -677,13 +719,14 @@
 			void saveActive()
 		} else if (ctrl && e.key.toLowerCase() === 'n') {
 			e.preventDefault()
-			newTree()
+			void newTree()
 		} else if (ctrl && e.key.toLowerCase() === 'w') {
 			e.preventDefault()
 			if (activeKey) requestClose(activeKey)
 		} else if (ctrl && e.key === 'Enter') {
 			e.preventDefault()
-			scheduleGenerate(true)
+			// Same action as the Regenerate button, so it rerolls too.
+			scheduleGenerate(true, true)
 		}
 	}
 </script>
@@ -787,7 +830,7 @@
 			</div>
 
 			<div class="explorer-foot">
-				<button class="btn full" onclick={newTree}><Icon name="plus" size={14} />New Tree</button>
+				<button class="btn full" onclick={() => void newTree()}><Icon name="plus" size={14} />New Tree</button>
 				<button class="btn secondary full" onclick={() => (importModalOpen = true)}>
 					<Icon name="import" size={14} />Import Tree
 				</button>
@@ -848,7 +891,7 @@
 						<span class="name-ext mono">.json</span>
 					</div>
 					<div class="doc-actions">
-						<button class="icon-btn" title="Regenerate preview (Ctrl+Enter)" aria-label="Regenerate preview" disabled={generating} onclick={() => scheduleGenerate(true)}>
+						<button class="icon-btn" title="Regenerate preview (Ctrl+Enter)" aria-label="Regenerate preview" disabled={generating} onclick={() => scheduleGenerate(true, true)}>
 							<Icon name="refresh" size={15} class={generating ? 'spin' : ''} />
 						</button>
 						<button class="icon-btn" title="Run benchmark" aria-label="Run benchmark" onclick={() => (benchmarkModalOpen = true)}>
@@ -971,7 +1014,7 @@
 								<h2>Tree Engine</h2>
 								<p>A datapack workspace for Minecraft world-gen trees.</p>
 								<div class="welcome-actions">
-									<button class="btn" onclick={newTree}><Icon name="plus" size={14} />New Tree</button>
+									<button class="btn" onclick={() => void newTree()}><Icon name="plus" size={14} />New Tree</button>
 									<button class="btn secondary" onclick={() => (importModalOpen = true)}>
 										<Icon name="import" size={14} />Import
 									</button>
@@ -1010,7 +1053,6 @@
 				{/if}
 				<span class="status-cell">Ln {cursor.line}, Col {cursor.column}</span>
 			{/if}
-			{#if hotReloading}<span class="status-cell accent">reloading</span>{/if}
 			<span class="status-cell">{biome.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')}</span>
 		</div>
 	</footer>

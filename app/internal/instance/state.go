@@ -22,7 +22,7 @@ type State struct {
 
 	// ActiveProjectPath is the absolute path to the currently open project
 	// folder (the datapack the mod reads/writes directly - see
-	// ProjectPaths.java on the mod side). Empty means no project is open;
+	// uploaded to the backend as a preview session). Empty means none open;
 	// StartServer refuses to boot the server in that state, the same way it
 	// already refuses when SetupComplete is false.
 	ActiveProjectPath string `json:"activeProjectPath"`

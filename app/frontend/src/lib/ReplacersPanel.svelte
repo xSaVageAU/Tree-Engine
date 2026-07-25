@@ -5,16 +5,51 @@
 	// simple equal-chance pool. Mirrors the original mod's TreeReplacerUI 1:1,
 	// just rebuilt with reactive state instead of manual DOM manipulation.
 	import { onMount } from 'svelte'
+	import { listFeatures, type ModConnection } from '../renderer/mod-client'
 	import {
 		deleteReplacer,
-		hotReload,
-		listVanillaTrees,
 		listReplacers,
 		saveReplacer,
-		type ModConnection,
 		type Replacer,
-		type ReplacerAlternative,
-	} from '../renderer/mod-client'
+		type ReplacerEntry,
+	} from '../renderer/project-client'
+
+	// A replacer is stored as an ordered pool: every entry but the last is
+	// chance-based, and the last is the fallback. The two form modes below are
+	// just different ways of building that one shape, so they are converted
+	// here rather than being separate concepts on disk.
+	interface ReplacerForm {
+		vanillaId: string
+		mode: 'WEIGHTED' | 'SIMPLE'
+		defaultTree: string
+		alternatives: ReplacerEntry[]
+		pool: string[]
+	}
+
+	function toForm(r: Replacer): ReplacerForm {
+		const entries = r.entries ?? []
+		const fallback = entries.length ? entries[entries.length - 1].feature : ''
+		const rest = entries.slice(0, -1)
+		return {
+			vanillaId: r.vanillaId,
+			mode: r.mode === 'simple' ? 'SIMPLE' : 'WEIGHTED',
+			defaultTree: fallback,
+			alternatives: rest.map((e) => ({ ...e })),
+			pool: [...rest.map((e) => e.feature), fallback].filter(Boolean),
+		}
+	}
+
+	// Equal odds need descending chances: with n trees the first is picked
+	// 1/n of the time, the next 1/(n-1) of what remains, and so on, leaving
+	// the last as the fallback.
+	function equalChanceEntries(features: string[]): ReplacerEntry[] {
+		const entries: ReplacerEntry[] = []
+		for (let i = 0; i < features.length - 1; i++) {
+			entries.push({ feature: features[i], chance: 1 / (features.length - i) })
+		}
+		entries.push({ feature: features[features.length - 1], chance: 1 })
+		return entries
+	}
 	import Icon from './Icon.svelte'
 
 	let { conn, customTrees, onBack }: { conn: ModConnection; customTrees: string[]; onBack: () => void } = $props()
@@ -29,11 +64,11 @@
 	let formType = $state<'WEIGHTED' | 'SIMPLE'>('WEIGHTED')
 	let formVanillaTreeId = $state('')
 	let formDefaultTree = $state('')
-	let formAlternatives = $state<ReplacerAlternative[]>([])
+	let formAlternatives = $state<ReplacerEntry[]>([])
 	let formPool = $state<string[]>([])
 
 	onMount(() => {
-		Promise.all([listReplacers(conn), listVanillaTrees(conn)])
+		Promise.all([listReplacers(), listFeatures(conn, { treesOnly: true })])
 			.then(([r, v]) => {
 				replacers = r
 				vanillaTrees = v
@@ -57,12 +92,13 @@
 	}
 
 	function showEditForm(r: Replacer): void {
-		editingId = r.id
-		formType = r.type ?? 'WEIGHTED'
-		formVanillaTreeId = r.vanilla_tree_id
-		formDefaultTree = r.default_tree ?? ''
-		formAlternatives = r.alternatives ? [...r.alternatives] : []
-		formPool = r.features ? [...r.features] : []
+		const form = toForm(r)
+		editingId = r.vanillaId
+		formType = form.mode
+		formVanillaTreeId = form.vanillaId
+		formDefaultTree = form.defaultTree
+		formAlternatives = form.alternatives
+		formPool = form.pool
 		view = 'form'
 	}
 
@@ -86,9 +122,9 @@
 		}
 
 		const replacer: Replacer = {
-			id: editingId ?? '',
-			vanilla_tree_id: formVanillaTreeId,
-			type: formType,
+			vanillaId: formVanillaTreeId,
+			mode: formType === 'SIMPLE' ? 'simple' : 'weighted',
+			entries: [],
 		}
 
 		if (formType === 'WEIGHTED') {
@@ -102,27 +138,24 @@
 				alert('Total chance cannot exceed 1.0. Current: ' + total.toFixed(2))
 				return
 			}
-			replacer.default_tree = formDefaultTree
-			replacer.alternatives = alternatives
+			// The default tree is the fallback, so it goes last.
+			replacer.entries = [...alternatives, { feature: formDefaultTree, chance: 1 }]
 		} else {
 			const features = formPool.filter((f) => f)
 			if (features.length === 0) {
 				alert('Please add at least one tree to the pool')
 				return
 			}
-			replacer.features = features
+			replacer.entries = equalChanceEntries(features)
 		}
 
 		try {
-			await saveReplacer(conn, replacer)
-			replacers = await listReplacers(conn)
+			await saveReplacer(replacer)
+			replacers = await listReplacers()
 			view = 'list'
-			try {
-				await hotReload(conn)
-				statusMessage = 'Tree replacer saved and hot-reloaded!'
-			} catch {
-				statusMessage = 'Saved! (hot reload failed)'
-			}
+			// The replacer is a datapack file now, so saving is all there is
+			// to do - the next preview picks it up with the rest of the pack.
+			statusMessage = 'Tree replacer saved.'
 			setTimeout(() => (statusMessage = ''), 3000)
 		} catch (e) {
 			alert('Failed to save tree replacer: ' + (e as Error).message)
@@ -132,8 +165,8 @@
 	async function remove(id: string): Promise<void> {
 		if (!confirm('Are you sure you want to delete this tree replacer? This will restore the vanilla tree.')) return
 		try {
-			await deleteReplacer(conn, id)
-			replacers = await listReplacers(conn)
+			await deleteReplacer(id)
+			replacers = await listReplacers()
 			statusMessage = 'Tree replacer deleted.'
 			setTimeout(() => (statusMessage = ''), 3000)
 		} catch (e) {
@@ -178,36 +211,40 @@
 					</div>
 				{:else}
 					<div class="replacer-grid">
-						{#each replacers as r (r.id)}
+						{#each replacers as r (r.vanillaId)}
 							<div class="replacer-item">
 								<div class="replacer-top">
 									<div class="replacer-id">
-										<h4>{displayName(r.vanilla_tree_id)}</h4>
-										<span class="mono dim">{r.vanilla_tree_id}</span>
+										<h4>{displayName(r.vanillaId)}</h4>
+										<span class="mono dim">{r.vanillaId}</span>
 									</div>
-									<span class="type-chip" class:simple={r.type === 'SIMPLE'}>
-										{r.type === 'SIMPLE' ? 'Simple' : 'Weighted'}
+									<span class="type-chip" class:simple={r.mode === 'simple'}>
+										{r.mode === 'simple' ? 'Simple' : 'Weighted'}
 									</span>
 								</div>
 
 								<div class="replacer-body">
-									{#if r.type === 'SIMPLE'}
+									{#if r.mode === 'simple'}
 										<div class="kv">
 											<span class="k">Pool</span>
-											<span class="v">{(r.features ?? []).map((f) => f.split(':').pop()).join(', ') || 'empty'}</span>
+											<span class="v">
+												{(r.entries ?? []).map((e) => e.feature.split(':').pop()).join(', ') || 'empty'}
+											</span>
 										</div>
 									{:else}
 										<div class="kv">
 											<span class="k">Default</span>
-											<span class="v">{r.default_tree?.split(':').pop() ?? 'not set'}</span>
+											<span class="v">
+												{(r.entries ?? [])[(r.entries ?? []).length - 1]?.feature.split(':').pop() ?? 'not set'}
+											</span>
 										</div>
 										<div class="kv">
 											<span class="k">Alternatives</span>
 											<span class="v">
-												{#if (r.alternatives ?? []).length === 0}
+												{#if (r.entries ?? []).length < 2}
 													none
 												{:else}
-													{#each r.alternatives ?? [] as a}
+													{#each (r.entries ?? []).slice(0, -1) as a}
 														<span class="alt-chip">
 															{a.feature.split(':').pop()}
 															<b>{(a.chance * 100).toFixed(0)}%</b>
@@ -221,7 +258,7 @@
 
 								<div class="replacer-actions">
 									<button class="btn secondary btn-sm" onclick={() => showEditForm(r)}>Edit</button>
-									<button class="icon-btn danger" aria-label="Delete replacer" onclick={() => remove(r.id)}>
+									<button class="icon-btn danger" aria-label="Delete replacer" onclick={() => remove(r.vanillaId)}>
 										<Icon name="trash" size={14} />
 									</button>
 								</div>

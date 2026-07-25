@@ -14,7 +14,7 @@
 		result = null
 		error = ''
 		try {
-			result = await runBenchmark(conn, feature, iterations)
+			result = await runBenchmark(conn, { feature, iterations })
 		} catch (e) {
 			error = (e as Error).message
 		} finally {
@@ -61,11 +61,11 @@
 					</div>
 					<div class="stat">
 						<div class="stat-label">Avg time</div>
-						<div class="stat-value small">{result.avgTimeMs.toFixed(3)}<span class="unit">ms</span></div>
+						<div class="stat-value small">{result.avgMs.toFixed(3)}<span class="unit">ms</span></div>
 					</div>
 					<div class="stat">
 						<div class="stat-label">Total ({result.iterations.toLocaleString()} trees)</div>
-						<div class="stat-value small">{result.totalTimeMs.toFixed(1)}<span class="unit">ms</span></div>
+						<div class="stat-value small">{result.totalMs.toFixed(1)}<span class="unit">ms</span></div>
 					</div>
 				</div>
 			{:else}

@@ -46,8 +46,10 @@ func (l Layout) McAssetsDir() string {
 	return filepath.Join(l.Root, "mcassets")
 }
 
-func (l Layout) TreeEngineConfigDir() string {
-	return filepath.Join(l.InstanceDir, "config", "tree_engine")
+// ConfigDir is the server's config folder, where the backend reads
+// tree-engine-backend.json from (see BackendConfig.CONFIG_FILE).
+func (l Layout) ConfigDir() string {
+	return filepath.Join(l.InstanceDir, "config")
 }
 
 func (l Layout) ServerJarPath() string {
@@ -59,7 +61,7 @@ func (l Layout) ServerPropertiesPath() string {
 }
 
 func (l Layout) EnsureDirs() error {
-	dirs := []string{l.Root, l.InstanceDir, l.ModsDir(), l.TreeEngineConfigDir()}
+	dirs := []string{l.Root, l.InstanceDir, l.ModsDir(), l.ConfigDir()}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err

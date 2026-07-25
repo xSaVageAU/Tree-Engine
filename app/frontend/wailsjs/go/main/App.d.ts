@@ -5,9 +5,17 @@ import {instance} from '../models';
 
 export function CloseProject():Promise<void>;
 
+export function DeleteReplacer(arg1:string):Promise<void>;
+
+export function DeleteTree(arg1:string):Promise<void>;
+
 export function EnsureAssets():Promise<main.AssetsPayload>;
 
 export function GetCurrentProject():Promise<main.ProjectInfo>;
+
+export function GetPlacement(arg1:string):Promise<string>;
+
+export function GetProjectDatapack():Promise<Record<string, string>>;
 
 export function GetRecentProjects():Promise<Array<main.ProjectInfo>>;
 
@@ -15,9 +23,15 @@ export function GetSettings():Promise<instance.Settings>;
 
 export function GetStatus():Promise<main.StatusPayload>;
 
+export function GetTree(arg1:string):Promise<string>;
+
 export function ImportDatapackFolder():Promise<string>;
 
 export function ImportDatapackZip():Promise<string>;
+
+export function ListReplacers():Promise<Array<instance.Replacer>>;
+
+export function ListTrees():Promise<Array<string>>;
 
 export function OpenInstanceFolder():Promise<void>;
 
@@ -27,7 +41,13 @@ export function OpenRecentProject(arg1:string):Promise<main.ProjectInfo>;
 
 export function RunSetup(arg1:boolean):Promise<void>;
 
+export function SavePlacement(arg1:string,arg2:string):Promise<void>;
+
+export function SaveReplacer(arg1:instance.Replacer):Promise<void>;
+
 export function SaveSettings(arg1:instance.Settings):Promise<void>;
+
+export function SaveTree(arg1:string,arg2:string):Promise<void>;
 
 export function StartServer():Promise<void>;
 

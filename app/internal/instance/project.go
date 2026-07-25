@@ -1,9 +1,10 @@
 // Project folders: the "workspace" a user opens, VS Code style. Unlike the
 // datapack import flow in datapacks.go (which copies a third-party pack into
-// the managed instance), a project folder is read/written directly by the
-// mod wherever it lives on disk - see ProjectPaths.java. This file only
-// handles the desktop-app side of opening one: sanity-checking the chosen
-// path and scaffolding it into a valid datapack if it isn't one yet.
+// the managed instance), a project folder lives wherever the user keeps it and
+// is read and written by this app alone - the backend never touches disk, it
+// receives the project's contents in a request. This file handles opening
+// one: sanity-checking the chosen path and scaffolding it into a valid
+// datapack if it isn't one yet.
 package instance
 
 import (

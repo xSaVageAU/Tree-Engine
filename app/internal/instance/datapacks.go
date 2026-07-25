@@ -1,15 +1,15 @@
-// Datapack import support. TreeEngineResourcePackProvider.java already scans
-// DatapacksDir for ANY subfolder with a valid data/ directory and registers
-// it as a top-priority server-data pack - not just the mod's own generated
-// tree_engine_trees folder. This file is what lets the desktop app add a
-// third-party datapack (a Modrinth zip, or an already-unzipped folder) into
-// that directory from a native picker instead of requiring the user to find
-// the instance folder themselves.
+// Datapack import support.
 //
-// Installing a datapack here does not take effect immediately: Minecraft
-// only loads worldgen registries (configured_feature, placed_feature, etc.)
-// when a world is loaded, unlike tags or loot tables which /reload can
-// refresh live. The server needs a restart to pick up newly installed trees.
+// An imported datapack is installed into the server world's datapacks folder,
+// which is where vanilla loads them from. That placement matters for more
+// than the running world: the backend layers a preview session on top of
+// server.getResourceManager().listPacks(), so anything installed here shows
+// up in the feature list and in previews alongside the user's own trees.
+//
+// Installing does not take effect immediately. Minecraft only reads worldgen
+// registries (configured_feature, placed_feature, biome) when a world loads,
+// unlike tags or loot tables which /reload can refresh live, so the server
+// needs a restart to pick up newly installed packs.
 package instance
 
 import (
@@ -21,10 +21,10 @@ import (
 	"strings"
 )
 
-// DatapacksDir mirrors MainConfig.getConfigDir().resolve("datapacks") on the
-// Java side.
+// DatapacksDir is the server world's datapacks folder - the location vanilla
+// itself scans, so no mod-side pack provider is needed to load them.
 func (l Layout) DatapacksDir() string {
-	return filepath.Join(l.TreeEngineConfigDir(), "datapacks")
+	return filepath.Join(l.InstanceDir, "world", "datapacks")
 }
 
 // InstallDatapackZip extracts a datapack zip into a uniquely-named folder
@@ -149,8 +149,9 @@ func extractZipEntry(f *zip.File, target string) error {
 
 // flattenAndValidateDatapack handles the common case of a datapack zip/folder
 // wrapping everything in one extra top-level folder, so data/ ends up
-// directly under dest. Errors out if it still isn't a valid datapack -
-// TreeEngineResourcePackProvider.java requires a data/ folder at the pack root.
+// directly under dest. Errors out if it still isn't a valid datapack - a pack
+// without data/ at its root is silently ignored by Minecraft, which is a
+// worse outcome than refusing the import.
 func flattenAndValidateDatapack(dest string) error {
 	if hasDataDir(dest) {
 		return nil

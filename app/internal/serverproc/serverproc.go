@@ -19,18 +19,23 @@ const (
 	// Not user-configurable in v1 - see plan's "Explicitly Out of Scope".
 	DefaultHeapMB = 2048
 
-	doneMarker     = "]: Done ("
-	webReadyMarker = "Web Editor Server started on port"
+	doneMarker = "]: Done ("
+	// Logged by ApiServer.listen() once the backend has bound its port.
+	// This is a fast path only - callers must not depend on it alone, since
+	// a log-format change would otherwise hang startup forever. See
+	// app.go's readiness handling, which also polls the port after
+	// doneMarker.
+	backendReadyMarker = "Tree Engine backend listening on"
 )
 
 // Process wraps a running (or stopped) managed server.
 type Process struct {
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	job        *jobObject
-	onLine     func(line string)
-	onDone     func()
-	onWebReady func()
+	cmd            *exec.Cmd
+	stdin          io.WriteCloser
+	job            *jobObject
+	onLine         func(line string)
+	onDone         func()
+	onBackendReady func()
 
 	mu       sync.Mutex
 	exited   bool
@@ -41,13 +46,13 @@ type Process struct {
 
 // Options configures a Launch call.
 type Options struct {
-	JavaPath   string
-	JarPath    string
-	WorkDir    string
-	HeapMB     int
-	OnLine     func(line string) // called for every stdout/stderr line
-	OnDone     func()            // called once when "Done (...)!' is seen
-	OnWebReady func()            // called once when the mod's web editor reports started
+	JavaPath       string
+	JarPath        string
+	WorkDir        string
+	HeapMB         int
+	OnLine         func(line string) // called for every stdout/stderr line
+	OnDone         func()            // called once when "Done (...)!' is seen
+	OnBackendReady func()            // called once the backend logs that it is listening
 }
 
 // Launch spawns `java -Xmx<HeapMB>M -jar <JarPath> nogui` with the given
@@ -97,13 +102,13 @@ func Launch(ctx context.Context, opts Options) (*Process, error) {
 	}
 
 	p := &Process{
-		cmd:        cmd,
-		stdin:      stdin,
-		job:        job,
-		onLine:     opts.OnLine,
-		onDone:     opts.OnDone,
-		onWebReady: opts.OnWebReady,
-		doneCh:     make(chan struct{}),
+		cmd:            cmd,
+		stdin:          stdin,
+		job:            job,
+		onLine:         opts.OnLine,
+		onDone:         opts.OnDone,
+		onBackendReady: opts.OnBackendReady,
+		doneCh:         make(chan struct{}),
 	}
 
 	var wg sync.WaitGroup
@@ -139,8 +144,8 @@ func (p *Process) streamLines(r io.Reader, wg *sync.WaitGroup) {
 		if strings.Contains(line, doneMarker) && p.onDone != nil {
 			p.onDone()
 		}
-		if strings.Contains(line, webReadyMarker) && p.onWebReady != nil {
-			p.onWebReady()
+		if strings.Contains(line, backendReadyMarker) && p.onBackendReady != nil {
+			p.onBackendReady()
 		}
 	}
 	if err := scanner.Err(); err != nil && p.onLine != nil {

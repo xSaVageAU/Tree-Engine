@@ -6,12 +6,28 @@ export function CloseProject() {
   return window['go']['main']['App']['CloseProject']();
 }
 
+export function DeleteReplacer(arg1) {
+  return window['go']['main']['App']['DeleteReplacer'](arg1);
+}
+
+export function DeleteTree(arg1) {
+  return window['go']['main']['App']['DeleteTree'](arg1);
+}
+
 export function EnsureAssets() {
   return window['go']['main']['App']['EnsureAssets']();
 }
 
 export function GetCurrentProject() {
   return window['go']['main']['App']['GetCurrentProject']();
+}
+
+export function GetPlacement(arg1) {
+  return window['go']['main']['App']['GetPlacement'](arg1);
+}
+
+export function GetProjectDatapack() {
+  return window['go']['main']['App']['GetProjectDatapack']();
 }
 
 export function GetRecentProjects() {
@@ -26,12 +42,24 @@ export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
 
+export function GetTree(arg1) {
+  return window['go']['main']['App']['GetTree'](arg1);
+}
+
 export function ImportDatapackFolder() {
   return window['go']['main']['App']['ImportDatapackFolder']();
 }
 
 export function ImportDatapackZip() {
   return window['go']['main']['App']['ImportDatapackZip']();
+}
+
+export function ListReplacers() {
+  return window['go']['main']['App']['ListReplacers']();
+}
+
+export function ListTrees() {
+  return window['go']['main']['App']['ListTrees']();
 }
 
 export function OpenInstanceFolder() {
@@ -50,8 +78,20 @@ export function RunSetup(arg1) {
   return window['go']['main']['App']['RunSetup'](arg1);
 }
 
+export function SavePlacement(arg1, arg2) {
+  return window['go']['main']['App']['SavePlacement'](arg1, arg2);
+}
+
+export function SaveReplacer(arg1) {
+  return window['go']['main']['App']['SaveReplacer'](arg1);
+}
+
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function SaveTree(arg1, arg2) {
+  return window['go']['main']['App']['SaveTree'](arg1, arg2);
 }
 
 export function StartServer() {

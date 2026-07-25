@@ -1,5 +1,6 @@
 {
-    "fabricApiVersion":  "0.138.3+1.21.10",
-    "minecraftVersion":  "1.21.10",
-    "modVersion":  "0.1.3-preview"
+    "fabricApiVersion":  "0.155.2+26.2",
+    "modVersion":  "2.0.0",
+    "minecraftVersion":  "26.2",
+    "loaderVersion":  "0.19.3"
 }

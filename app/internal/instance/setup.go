@@ -87,9 +87,9 @@ func Run(ctx context.Context, l Layout, eulaAccepted bool, progress ProgressFunc
 	if err != nil {
 		return nil, err
 	}
-	// No project is open yet at first-run setup time - ProjectPaths.java
-	// falls back to its legacy default until one is opened.
-	if err := WriteModConfig(l, port, authToken, ""); err != nil {
+	// The backend is stateless, so its config carries no project path - it
+	// only ever needs a port and a token.
+	if err := WriteModConfig(l, port, authToken); err != nil {
 		return nil, fmt.Errorf("failed to write mod config: %w", err)
 	}
 

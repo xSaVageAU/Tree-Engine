@@ -1,6 +1,12 @@
-// Thin client for the mod's HTTP API (see mod WebEditorServer/TreeApiHandler).
-// Every /api/* route requires the launcher's Bearer token (see AuthFilter) and,
-// from a webview origin, needs the mod's CORS support to actually complete.
+// Client for the Tree Engine backend's /v1 API.
+//
+// The backend is a stateless generation service: it compiles datapacks handed
+// to it and returns preview geometry. It stores nothing, so there is no CRUD
+// here - reading and writing the user's project goes through the Go side
+// (see project-client.ts). Everything below is "generate something and tell
+// me what blocks came out".
+//
+// Every route requires the launcher's bearer token (see ApiServer.java).
 
 import type { ApiBlock } from './structure'
 
@@ -9,171 +15,193 @@ export interface ModConnection {
 	token: string
 }
 
-function authHeaders(token: string): HeadersInit {
-	return { Authorization: `Bearer ${token}` }
-}
-
-async function getJson(conn: ModConnection, path: string): Promise<any> {
-	const res = await fetch(`http://127.0.0.1:${conn.port}${path}`, {
-		headers: authHeaders(conn.token),
-	})
-	if (!res.ok) throw new Error(`GET ${path} -> HTTP ${res.status}`)
-	return res.json()
-}
-
-async function postJson(conn: ModConnection, path: string, body: any): Promise<any> {
-	const res = await fetch(`http://127.0.0.1:${conn.port}${path}`, {
-		method: 'POST',
-		headers: { ...authHeaders(conn.token), 'Content-Type': 'application/json' },
-		body: JSON.stringify(body),
-	})
-	if (!res.ok) {
-		const text = await res.text().catch(() => '')
-		throw new Error(`POST ${path} -> HTTP ${res.status} ${text}`)
-	}
-	const responseText = await res.text()
-	return responseText ? JSON.parse(responseText) : undefined
-}
-
-async function del(conn: ModConnection, path: string): Promise<void> {
-	const res = await fetch(`http://127.0.0.1:${conn.port}${path}`, {
-		method: 'DELETE',
-		headers: authHeaders(conn.token),
-	})
-	if (!res.ok) throw new Error(`DELETE ${path} -> HTTP ${res.status}`)
-}
-
-// Lists vanilla ConfiguredFeature ids the mod's registry knows about, e.g.
-// "minecraft:oak", "minecraft:birch".
-export async function listVanillaTrees(conn: ModConnection): Promise<string[]> {
-	return getJson(conn, '/api/vanilla_trees')
-}
-
-// Fetches the raw ConfiguredFeature JSON for a vanilla tree - the exact shape
-// /api/generate expects as its request body.
-export async function getVanillaTree(conn: ModConnection, id: string): Promise<any> {
-	return getJson(conn, `/api/vanilla_tree/${encodeURIComponent(id)}`)
-}
-
-// Thrown by generateTree on a generation failure; `details` carries the mod's
-// extra diagnostic text (e.g. the DataResult parse error) when present.
-export class GenerateError extends Error {
-	details?: string
-	constructor(message: string, details?: string) {
+// The backend reports failures as {"error": "...", "detail": "..."}, where
+// detail carries the actionable part - the codec's complaint about a specific
+// datapack file, usually.
+export class BackendError extends Error {
+	detail?: string
+	status: number
+	constructor(message: string, status: number, detail?: string) {
 		super(message)
-		this.details = details
+		this.detail = detail
+		this.status = status
 	}
 }
 
-// Runs the mod's real PhantomWorld generation for a ConfiguredFeature and
-// returns the placed blocks - the same data the renderer adapter consumes.
-export async function generateTree(conn: ModConnection, feature: any): Promise<ApiBlock[]> {
-	const res = await fetch(`http://127.0.0.1:${conn.port}/api/generate`, {
-		method: 'POST',
-		headers: { ...authHeaders(conn.token), 'Content-Type': 'application/json' },
-		body: JSON.stringify(feature),
-	})
-	if (!res.ok) {
-		// The mod reports failures as {"error": "...", "details": "..."} JSON.
-		const body = await res.json().catch(() => null)
-		if (body?.error) throw new GenerateError(body.error, body.details)
-		throw new GenerateError(`HTTP ${res.status}`)
-	}
-	return res.json()
-}
-
-// Convenience: generate a named vanilla tree in one call, preferring
-// preferredId if the registry has it, else falling back to the first
-// available vanilla tree.
-export async function generateVanillaTree(
+async function request<T>(
 	conn: ModConnection,
-	preferredId = 'minecraft:oak',
-): Promise<{ id: string; blocks: ApiBlock[] }> {
-	const ids = await listVanillaTrees(conn)
-	if (ids.length === 0) throw new Error('mod reports no vanilla trees in its registry')
-	const id = ids.includes(preferredId) ? preferredId : ids[0]
-	const feature = await getVanillaTree(conn, id)
-	const blocks = await generateTree(conn, feature)
-	return { id, blocks }
+	method: string,
+	path: string,
+	body?: unknown,
+): Promise<T> {
+	const res = await fetch(`http://127.0.0.1:${conn.port}${path}`, {
+		method,
+		headers: {
+			Authorization: `Bearer ${conn.token}`,
+			...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+		},
+		body: body === undefined ? undefined : JSON.stringify(body),
+	})
+
+	if (!res.ok) {
+		const parsed = await res.json().catch(() => null)
+		throw new BackendError(
+			parsed?.error ?? `${method} ${path} failed`,
+			res.status,
+			parsed?.detail,
+		)
+	}
+
+	const text = await res.text()
+	return (text ? JSON.parse(text) : undefined) as T
 }
 
-// --- Custom tree CRUD (config/tree_engine/datapacks/tree_engine_trees) ---
+// --- health ---------------------------------------------------------------
 
-export async function listTrees(conn: ModConnection): Promise<string[]> {
-	return getJson(conn, '/api/trees')
+export interface HealthInfo {
+	status: string
+	minecraftVersion: string
+	backendVersion: string
+	sessions: number
 }
 
-export async function getTree(conn: ModConnection, id: string): Promise<any> {
-	return getJson(conn, `/api/trees/${encodeURIComponent(id)}`)
+export async function health(conn: ModConnection): Promise<HealthInfo> {
+	return request(conn, 'GET', '/v1/health')
 }
 
-// Saves a tree's ConfiguredFeature JSON under id, creating or overwriting it.
-export async function saveTree(conn: ModConnection, id: string, feature: any): Promise<{ id: string }> {
-	return postJson(conn, `/api/trees/${encodeURIComponent(id)}`, feature)
+// --- sessions -------------------------------------------------------------
+
+export interface SessionInfo {
+	sessionId: string
+	fileCount: number
+	// True when the backend already had this exact datapack compiled.
+	cached: boolean
 }
 
-export async function deleteTree(conn: ModConnection, id: string): Promise<void> {
-	return del(conn, `/api/trees/${encodeURIComponent(id)}`)
+// Compiles a datapack (path -> contents, as GetProjectDatapack returns it)
+// into an in-memory registry set and returns a handle to it.
+//
+// The id is a fingerprint of the content, so re-sending an unchanged project
+// is a cache hit rather than a recompile - it is cheap to call this before
+// every preview, and that is the intended usage.
+export async function createSession(
+	conn: ModConnection,
+	files: Record<string, string>,
+): Promise<SessionInfo> {
+	return request(conn, 'POST', '/v1/session', { files })
 }
 
-// A tree's placement (PlacedFeature) rules are stored separately from its
-// ConfiguredFeature - fetching one that doesn't exist yet 404s; callers should
-// fall back to an empty default (see mod TreeManager.selectTree behavior).
-export async function getPlacement(conn: ModConnection, id: string): Promise<any> {
-	return getJson(conn, `/api/trees/${encodeURIComponent(id)}/placement`)
+export async function deleteSession(conn: ModConnection, sessionId: string): Promise<void> {
+	await request(conn, 'DELETE', `/v1/session/${encodeURIComponent(sessionId)}`)
 }
 
-export async function savePlacement(conn: ModConnection, id: string, placement: any): Promise<void> {
-	await postJson(conn, `/api/trees/${encodeURIComponent(id)}/placement`, placement)
+// --- registry -------------------------------------------------------------
+
+// Configured feature ids the backend knows about. With trees=true this is the
+// list of things that actually generate trees, which is what the browser and
+// the import dialog want.
+export async function listFeatures(
+	conn: ModConnection,
+	options: { sessionId?: string; treesOnly?: boolean } = {},
+): Promise<string[]> {
+	const params = new URLSearchParams()
+	if (options.sessionId) params.set('sessionId', options.sessionId)
+	if (options.treesOnly) params.set('trees', 'true')
+	const query = params.toString()
+	const body = await request<{ features: string[] }>(
+		conn,
+		'GET',
+		`/v1/registry/features${query ? `?${query}` : ''}`,
+	)
+	return body.features
 }
 
-// --- Tree replacers (vanilla tree -> custom tree pool substitution) ---
-
-export interface ReplacerAlternative {
-	feature: string
-	chance: number
+// The datapack JSON for a feature, encoded from the live registry.
+//
+// This is the source of truth for both importing a vanilla tree and creating
+// a new one: the starting config comes from the game rather than a literal in
+// the frontend, so it is always correct for the running Minecraft version.
+export async function getFeature(
+	conn: ModConnection,
+	id: string,
+	sessionId?: string,
+): Promise<unknown> {
+	const query = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''
+	return request(conn, 'GET', `/v1/registry/feature/${id}${query}`)
 }
 
-export interface Replacer {
-	id: string
-	vanilla_tree_id: string
-	type: 'WEIGHTED' | 'SIMPLE'
-	default_tree?: string
-	alternatives?: ReplacerAlternative[]
-	features?: string[]
+// --- single-tree preview --------------------------------------------------
+
+export interface TreePreviewRequest {
+	// Inline feature JSON, or featureId to use one from the registry.
+	feature?: unknown
+	featureId?: string
+	// Optional: previews of vanilla-only features need no datapack.
+	sessionId?: string
+	biome?: string
+	seed?: number
+	// Include the fabricated soil the tree was grown on.
+	includeGround?: boolean
 }
 
-export async function listReplacers(conn: ModConnection): Promise<Replacer[]> {
-	return getJson(conn, '/api/replacers')
+export interface TreePreviewResult {
+	blocks: ApiBlock[]
+	blockCount: number
+	// False when the feature declined to generate - bad soil, not enough room.
+	// That is a real outcome worth showing, not an error.
+	placed: boolean
 }
 
-export async function getReplacer(conn: ModConnection, id: string): Promise<Replacer> {
-	return getJson(conn, `/api/replacers/${encodeURIComponent(id)}`)
+export async function previewTree(
+	conn: ModConnection,
+	req: TreePreviewRequest,
+): Promise<TreePreviewResult> {
+	return request(conn, 'POST', '/v1/preview/tree', req)
 }
 
-export async function saveReplacer(conn: ModConnection, replacer: Replacer): Promise<Replacer> {
-	return postJson(conn, '/api/replacers', replacer)
+// --- natural chunk preview ------------------------------------------------
+
+export interface ChunkPreviewRequest {
+	sessionId?: string
+	chunkX?: number
+	chunkZ?: number
+	// 0 = one chunk, 1 = 3x3. The backend caps the total.
+	radius?: number
+	seed?: number
+	// Only the blocks decoration added, rather than the whole chunk.
+	decoratedOnly?: boolean
 }
 
-export async function deleteReplacer(conn: ModConnection, id: string): Promise<void> {
-	return del(conn, `/api/replacers/${encodeURIComponent(id)}`)
+export interface ChunkPreviewResult {
+	blocks: ApiBlock[]
+	blockCount: number
+	chunkCount: number
+	decoratedCount: number
+	// False when no session was supplied, i.e. this is vanilla generation.
+	datapackApplied: boolean
 }
 
-// --- Misc ---
-
-// Reloads all trees and replacers from disk into the running game registry -
-// call after saving so changes take effect without a server restart.
-export async function hotReload(conn: ModConnection): Promise<void> {
-	await postJson(conn, '/api/hot-reload', undefined)
+// Real terrain from the running world, decorated with the session's features.
+export async function previewChunk(
+	conn: ModConnection,
+	req: ChunkPreviewRequest,
+): Promise<ChunkPreviewResult> {
+	return request(conn, 'POST', '/v1/preview/chunk', req)
 }
+
+// --- benchmark ------------------------------------------------------------
 
 export interface BenchmarkResult {
-	totalTimeMs: number
-	avgTimeMs: number
-	treesPerSecond: number
 	iterations: number
+	totalMs: number
+	avgMs: number
+	treesPerSecond: number
+	avgBlocks: number
 }
 
-export async function runBenchmark(conn: ModConnection, feature: any, iterations: number): Promise<BenchmarkResult> {
-	return postJson(conn, '/api/benchmark', { feature, iterations })
+export async function runBenchmark(
+	conn: ModConnection,
+	req: { feature?: unknown; featureId?: string; sessionId?: string; iterations?: number },
+): Promise<BenchmarkResult> {
+	return request(conn, 'POST', '/v1/benchmark', req)
 }

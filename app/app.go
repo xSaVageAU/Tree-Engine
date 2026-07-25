@@ -237,7 +237,7 @@ func (a *App) StartServer() {
 		a.emitStatus(PhaseError, fmt.Sprintf("Failed to update mod jar: %v", err))
 		return
 	}
-	if err := instance.WriteModConfig(a.layout, state.Port, state.AuthToken, state.ActiveProjectPath); err != nil {
+	if err := instance.WriteModConfig(a.layout, state.Port, state.AuthToken); err != nil {
 		a.emitStatus(PhaseError, fmt.Sprintf("Failed to write mod config: %v", err))
 		return
 	}
@@ -265,30 +265,42 @@ func (a *App) StartServer() {
 
 	a.emitStatus(PhaseStarting, "Starting server...")
 
+	// Both readiness signals converge here, and only the first one to succeed
+	// reports. /v1/health needs a bearer token we deliberately do not send:
+	// any HTTP response at all, 401 included, proves the backend is answering,
+	// which is exactly the question being asked.
+	var readyOnce sync.Once
+	healthURL := fmt.Sprintf("http://127.0.0.1:%d/v1/health", state.Port)
+	awaitBackend := func(timeout time.Duration) {
+		if waitForHTTPReady(a.ctx, healthURL, timeout) {
+			readyOnce.Do(func() {
+				a.emitStatus(PhaseRunning, "Backend is live.")
+			})
+		}
+	}
+
 	proc, err := serverproc.Launch(a.ctx, serverproc.Options{
 		JavaPath: state.JavaPath,
 		JarPath:  a.layout.ServerJarPath(),
 		WorkDir:  a.layout.InstanceDir,
 		OnLine:   a.emitLog,
 		OnDone: func() {
-			a.emitStatus(PhaseStarting, "Server loaded, waiting for web editor...")
+			a.emitStatus(PhaseStarting, "Server loaded, waiting for backend...")
+			// Fallback path. The backend normally announces itself in the log
+			// and OnBackendReady fires first, but that marker is a string
+			// match against another component's log format - when it drifted
+			// once, startup hung here forever with the backend running fine.
+			// Polling the port regardless means readiness never depends on a
+			// log line alone. The longer budget covers a backend that starts
+			// slightly after the server reports Done.
+			go awaitBackend(30 * time.Second)
 		},
-		OnWebReady: func() {
-			// The mod's log line means the HTTP server has bound its socket,
-			// but the very first real request from the embedded webview can
-			// still occasionally race that (observed as a one-off "refused
-			// to connect" in the iframe even though curl succeeds moments
-			// later). Actively poll until a real HTTP round-trip succeeds
-			// before telling the frontend to load the iframe, so it never
-			// navigates before the server can truly answer.
-			go func() {
-				url := fmt.Sprintf("http://127.0.0.1:%d/", state.Port)
-				if waitForHTTPReady(a.ctx, url, 10*time.Second) {
-					a.emitStatus(PhaseRunning, "Web editor is live.")
-				} else {
-					a.emitStatus(PhaseError, "Web editor did not respond in time.")
-				}
-			}()
+		OnBackendReady: func() {
+			// The log line means the socket is bound, but the first real
+			// request from the embedded webview can still race that (seen as
+			// a one-off "refused to connect" even though curl succeeds
+			// moments later). Poll until a round-trip actually succeeds.
+			go awaitBackend(10 * time.Second)
 		},
 	})
 	if err != nil {

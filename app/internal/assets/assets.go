@@ -1,7 +1,7 @@
-// Package assets embeds the built Tree Engine mod jar and its metadata
-// manifest, both populated by scripts/sync-mod-jar.ps1. Never edit
+// Package assets embeds the built Tree Engine backend jar and its metadata
+// manifest, both populated by scripts/sync-backend-jar.ps1. Never edit
 // tree-engine.jar or mod-manifest.json by hand - re-run the sync script
-// after changing the mod.
+// after changing the backend.
 package assets
 
 import (
@@ -17,8 +17,8 @@ var TreeEngineJar []byte
 //go:embed mod-manifest.json
 var modManifestRaw []byte
 
-// ModManifest describes the exact mod build embedded above, read from
-// mod/gradle.properties at sync time so the Go code never hardcodes
+// ModManifest describes the exact backend build embedded above, read from
+// backend/gradle.properties at sync time so the Go code never hardcodes
 // Java build metadata that could drift out of sync.
 type ModManifest struct {
 	MinecraftVersion string `json:"minecraftVersion"`

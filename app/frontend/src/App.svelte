@@ -1,18 +1,22 @@
 <script lang="ts">
 	import { onMount } from 'svelte'
 	import {
-		CloseProject,
 		GetCurrentProject,
 		GetRecentProjects,
 		GetSettings,
 		GetStatus,
 		OpenInstanceFolder,
-		OpenProjectFolder,
-		OpenRecentProject,
 		RunSetup,
 		StartServer,
 		StopServer,
 	} from '../wailsjs/go/main/App'
+	// Project switching goes through the project client so the cached preview
+	// session is dropped with it.
+	import {
+		closeProject as closeProjectRequest,
+		openProjectFolder as openProjectRequest,
+		openRecentProject as openRecentRequest,
+	} from './renderer/project-client'
 	import { EventsOn } from '../wailsjs/runtime/runtime'
 	import Icon from './lib/Icon.svelte'
 	import SettingsModal from './lib/SettingsModal.svelte'
@@ -112,7 +116,7 @@
 		openingProject = true
 		projectError = ''
 		try {
-			const info = await OpenProjectFolder()
+			const info = await openProjectRequest()
 			if (info.path) currentProject = info
 		} catch (e) {
 			projectError = (e as Error).message
@@ -126,7 +130,7 @@
 		openingProject = true
 		projectError = ''
 		try {
-			const info = await OpenRecentProject(path)
+			const info = await openRecentRequest(path)
 			if (info.path) currentProject = info
 		} catch (e) {
 			projectError = (e as Error).message
@@ -137,7 +141,7 @@
 	}
 
 	async function closeProject(): Promise<void> {
-		await CloseProject()
+		await closeProjectRequest()
 		await refreshProject()
 	}
 </script>
