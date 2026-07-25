@@ -102,20 +102,23 @@ datapack.
 **The vertical window matters.** A chunk spans y −64→320 and is overwhelmingly
 underground stone; returning all of it is both slow and useless to look at.
 
-Left to itself the backend returns a *crust*: each column is carried down a
-fixed depth below **its own** surface. That matters on slopes. An earlier
-version cut every column at one global height to bound the block count, which
-looked fine on flat ground and sawed straight through hillsides everywhere
-else, leaving them floating over a void. Following the terrain also bounds the
-count better, because a deep column is never filled solid just to reach the
-surface — a 3×3 forest went from ~31k blocks to ~13k.
+The preview is cut at a flat height, `minY` if given and **y=32** otherwise —
+below sea level (63) so shorelines survive, above the deepslate transition
+(~0) so the visible profile is terrain you would build on. Two earlier and
+cleverer schemes are worth not repeating: fitting the window to the region's
+surface, and a per-column crust following it. Both bounded the volume better
+and both produced artefacts on sloped ground that read as missing terrain. A
+single flat cut reads as a cross-section, which is honest and legible.
 
-Decoration that reaches past the requested chunks is included, so a tree on a
-chunk border is not sliced in half. A hard floor well below normal terrain
-variation keeps a lone shaft or cave mouth from stretching the preview over
-empty space; it sits far enough down never to cut a hillside.
+What makes a flat cut affordable is interior culling: a block sealed in by six
+opaque neighbours contributes no visible face, so it is dropped. Faces on the
+edge of the window count as exposed, keeping the cut plane and the outer walls
+solid. For a 3×3 that is ~26k blocks emitted against ~150k filled.
 
-Giving `minY`/`maxY` explicitly overrides all of this and returns a plain slab.
+Decoration reaching past the requested chunks is included, so a tree on a
+chunk border is not sliced in half — bounded by the same window, since
+underground decoration crosses borders as readily as a canopy does.
+
 The `minY`/`maxY` in the response are the extent the output actually occupies.
 
 Terrain comes from the running world, so it depends on that world's seed and

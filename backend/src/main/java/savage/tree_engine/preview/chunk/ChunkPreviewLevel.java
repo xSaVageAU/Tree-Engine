@@ -1,6 +1,7 @@
 package savage.tree_engine.preview.chunk;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.particles.ParticleOptions;
@@ -100,40 +101,67 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 	 * was placed on it. This is what a renderer showing "the chunk as it would
 	 * appear in game" needs.
 	 */
-	public List<BlockDto> fullChunk(TerrainSnapshot snapshot, int crustDepth, int toY, int hardFloor) {
+	public List<BlockDto> fullChunk(TerrainSnapshot snapshot, Window window) {
 		List<BlockDto> out = new ArrayList<>();
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		int baseX = snapshot.pos().getMinBlockX();
 		int baseZ = snapshot.pos().getMinBlockZ();
-		int floor = Math.max(snapshot.minY(), hardFloor);
-		int ceiling = Math.min(toY, snapshot.minY() + snapshot.height() - 1);
+		int lo = Math.max(window.minY(), snapshot.minY());
+		int hi = Math.min(window.maxY(), snapshot.minY() + snapshot.height() - 1);
 
-		for (int z = 0; z < 16; z++) {
-			for (int x = 0; x < 16; x++) {
-				int worldX = baseX + x;
-				int worldZ = baseZ + z;
-
-				// Each column gets its own floor, a fixed depth below its own
-				// surface, rather than every column being cut at one global
-				// height. A single plane looks fine on flat ground and badly
-				// wrong on a slope: it saws through hillsides and leaves them
-				// floating over a void. Following the terrain gives an even
-				// crust and, incidentally, far fewer blocks - a deep column no
-				// longer has to be filled in solid just to reach the surface.
-				int surface = getHeight(Heightmap.Types.MOTION_BLOCKING, worldX, worldZ) - 1;
-				int lo = Math.max(floor, surface - crustDepth);
-
-				for (int y = lo; y <= ceiling; y++) {
-					cursor.set(worldX, y, worldZ);
+		for (int y = lo; y <= hi; y++) {
+			for (int z = 0; z < 16; z++) {
+				for (int x = 0; x < 16; x++) {
+					cursor.set(baseX + x, y, baseZ + z);
 					BlockState state = getBlockState(cursor);
-					if (state.isAir()) {
+					if (state.isAir() || hidden(cursor, window)) {
 						continue;
 					}
-					out.add(BlockDto.of(worldX, y, worldZ, state));
+					out.add(BlockDto.of(cursor.getX(), cursor.getY(), cursor.getZ(), state));
 				}
 			}
 		}
 		return out;
+	}
+
+	/**
+	 * Whether a block is sealed in on all six sides and therefore cannot be
+	 * seen from outside the preview.
+	 *
+	 * Cutting the world at a flat height means everything below the surface
+	 * comes back solid, and the overwhelming majority of it is buried stone.
+	 * Dropping it is not a visual compromise - a block with six opaque
+	 * neighbours contributes no visible face - but it removes most of the
+	 * volume, which is what makes a flat cutoff affordable at all.
+	 *
+	 * A face on the edge of the window counts as exposed, so the cut plane and
+	 * the outer walls stay solid and the result reads as a cross-section
+	 * rather than a hollow shell.
+	 */
+	private boolean hidden(BlockPos pos, Window window) {
+		BlockPos.MutableBlockPos neighbour = new BlockPos.MutableBlockPos();
+		for (Direction direction : Direction.values()) {
+			neighbour.set(pos).move(direction);
+			if (!window.contains(neighbour)) {
+				return false;
+			}
+			if (!getBlockState(neighbour).canOcclude()) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * The box a preview covers. Anything outside it is treated as open space,
+	 * which is what keeps the boundary faces visible.
+	 */
+	public record Window(int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
+		public boolean contains(BlockPos pos) {
+			return pos.getX() >= minX && pos.getX() <= maxX
+				&& pos.getY() >= minY && pos.getY() <= maxY
+				&& pos.getZ() >= minZ && pos.getZ() <= maxZ;
+		}
 	}
 
 	/**
@@ -142,6 +170,9 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 	 * A tree near a chunk edge legitimately writes part of its canopy into the
 	 * neighbour. Those blocks belong to the preview - dropping them slices the
 	 * tree cleanly in half along the chunk border.
+	 *
+	 * These are not interior-culled: they sit outside the emitted box by
+	 * definition, so nothing around them is solid.
 	 */
 	public List<BlockDto> spillOutside(java.util.Set<Long> chunks, int fromY, int toY) {
 		List<BlockDto> out = new ArrayList<>();
@@ -152,8 +183,7 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 			}
 			// Spill obeys the same window as everything else. Underground
 			// decoration - sculk in a deep dark, say - also crosses chunk
-			// borders, and without this it comes back from a hundred blocks
-			// down and stretches the preview over empty space.
+			// borders, and without this it comes back from far below the cut.
 			if (pos.getY() < fromY || pos.getY() > toY) {
 				continue;
 			}

@@ -299,6 +299,18 @@
 		}
 	}
 
+	// Jumps somewhere else in the world. The managed server has one seed, so
+	// sampling different terrain means moving rather than reseeding - and
+	// moving is instant, where a new seed would mean regenerating the world.
+	//
+	// Somewhere in a +/-1000 chunk range is far enough to land in genuinely
+	// different biomes without being so remote that nothing is cached.
+	function randomizeLocation(): void {
+		worldChunkX = Math.floor(Math.random() * 2001) - 1000
+		worldChunkZ = Math.floor(Math.random() * 2001) - 1000
+		scheduleGenerate(true, true)
+	}
+
 	function openWorld(): void {
 		if (!docs.some((d) => d.key === WORLD_KEY)) {
 			docs = [...docs, makeDoc({ key: WORLD_KEY, kind: 'world' })]
@@ -530,7 +542,11 @@
 		const seq = ++genSeq
 		const docKey = doc.key
 		generating = true
-		doc.status = { message: 'Generating chunks...', error: false, details: '' }
+		doc.status = {
+			message: 'Generating chunks (new terrain can take a moment)...',
+			error: false,
+			details: '',
+		}
 		const started = performance.now()
 
 		try {
@@ -1072,6 +1088,14 @@
 										<option value={1}>3 × 3</option>
 									</select>
 									<span class="tool-sep"></span>
+									<button
+										class="tool-btn"
+										title="Jump to a random location"
+										disabled={generating}
+										onclick={randomizeLocation}
+									>
+										<Icon name="shuffle" size={15} />
+									</button>
 									<button
 										class="tool-btn"
 										title="Generate (Ctrl+Enter)"

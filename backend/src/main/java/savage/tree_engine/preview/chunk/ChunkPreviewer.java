@@ -46,26 +46,18 @@ public final class ChunkPreviewer {
 	}
 
 	/**
-	 * How thick the terrain crust is: how far below its own surface each
-	 * column is carried down. Enough to read as solid ground without dragging
-	 * the whole stone column along.
+	 * Default floor for a preview.
+	 *
+	 * Comfortably below sea level (63) so shorelines and water are intact, and
+	 * comfortably above the deepslate transition (~0) so the visible profile
+	 * is the terrain you build on rather than a slab of deepslate. Everything
+	 * below is simply not generated into the response.
 	 */
-	private static final int CRUST_DEPTH = 5;
+	private static final int DEFAULT_FLOOR_Y = 32;
 
 	/** Headroom above the tallest thing, so nothing is clipped at the top. */
 	private static final int HEADROOM = 2;
 
-	/**
-	 * Hard floor on how far below the top of the preview anything is emitted.
-	 *
-	 * This is not the mechanism that bounds the block count - the per-column
-	 * crust does that. It exists for pathological columns: a shaft or cave
-	 * mouth whose "surface" is a hundred blocks down would otherwise stretch
-	 * the renderer's bounding box over mostly empty space. Set far enough
-	 * below normal terrain variation that it never cuts a hillside, which is
-	 * exactly what an earlier and much tighter cap did.
-	 */
-	private static final int MAX_SPAN = 64;
 
 	public Result preview(
 		RegistryAccess registries, int centerX, int centerZ, int radius,
@@ -120,35 +112,45 @@ public final class ChunkPreviewer {
 			}
 		}
 
-		// A chunk spans hundreds of blocks vertically and is nearly all stone.
-		// What a preview wants is the surface and whatever grows on it, so
-		// each column is carried down a fixed depth from its own surface and
-		// no further - see fullChunk.
-		int crust;
-		int toY;
-		int hardFloor;
-		if (requestedMinY != null && requestedMaxY != null) {
-			// An explicit window is taken literally: the caller asked for a
-			// slab, so give them a slab.
-			int lo = Math.min(requestedMinY, requestedMaxY);
-			toY = Math.max(requestedMinY, requestedMaxY);
-			crust = Math.max(0, toY - lo);
-			hardFloor = lo;
+		// The preview is cut at a flat height rather than fitted to each
+		// column. Earlier versions were cleverer about this - fitting a window
+		// to the surface, then a crust that followed it - and both produced
+		// artefacts on sloped ground that looked like missing terrain. A
+		// single honest cut reads as a cross-section, and interior culling in
+		// fullChunk is what keeps it affordable.
+		int floorY = requestedMinY != null ? requestedMinY : DEFAULT_FLOOR_Y;
+		int ceilingY;
+		if (requestedMaxY != null) {
+			ceilingY = requestedMaxY;
 		} else {
 			int highest = Integer.MIN_VALUE;
 			for (TerrainSnapshot snapshot : requested) {
 				highest = Math.max(highest, level.highestOccupied(snapshot));
 			}
-			toY = highest + HEADROOM;
-			crust = CRUST_DEPTH;
-			hardFloor = toY - MAX_SPAN;
+			ceilingY = highest + HEADROOM;
+		}
+		if (ceilingY < floorY) {
+			ceilingY = floorY;
 		}
 
 		List<BlockDto> blocks;
 		if (fullChunk) {
+			int minX = Integer.MAX_VALUE;
+			int maxX = Integer.MIN_VALUE;
+			int minZ = Integer.MAX_VALUE;
+			int maxZ = Integer.MIN_VALUE;
+			for (TerrainSnapshot snapshot : requested) {
+				minX = Math.min(minX, snapshot.pos().getMinBlockX());
+				maxX = Math.max(maxX, snapshot.pos().getMinBlockX() + 15);
+				minZ = Math.min(minZ, snapshot.pos().getMinBlockZ());
+				maxZ = Math.max(maxZ, snapshot.pos().getMinBlockZ() + 15);
+			}
+			ChunkPreviewLevel.Window window =
+				new ChunkPreviewLevel.Window(minX, maxX, floorY, ceilingY, minZ, maxZ);
+
 			blocks = new ArrayList<>();
 			for (TerrainSnapshot snapshot : requested) {
-				blocks.addAll(level.fullChunk(snapshot, crust, toY, hardFloor));
+				blocks.addAll(level.fullChunk(snapshot, window));
 			}
 			// Decoration that reached past the requested chunks comes along,
 			// so a tree on a border is not sliced in half.
@@ -156,13 +158,11 @@ public final class ChunkPreviewer {
 			for (TerrainSnapshot snapshot : requested) {
 				requestedKeys.add(ChunkPos.pack(snapshot.pos().x(), snapshot.pos().z()));
 			}
-			blocks.addAll(level.spillOutside(requestedKeys, hardFloor, toY));
+			blocks.addAll(level.spillOutside(requestedKeys, floorY, ceilingY));
 		} else {
 			blocks = level.decorated();
 		}
 
-		// Report the window the output actually occupies rather than the one
-		// asked for - with a per-column floor there is no single lower plane.
 		int minY = Integer.MAX_VALUE;
 		int maxY = Integer.MIN_VALUE;
 		for (BlockDto block : blocks) {
@@ -170,8 +170,8 @@ public final class ChunkPreviewer {
 			maxY = Math.max(maxY, block.y());
 		}
 		if (blocks.isEmpty()) {
-			minY = 0;
-			maxY = 0;
+			minY = floorY;
+			maxY = floorY;
 		}
 
 		return new Result(blocks, requested.size(), level.decorated().size(), minY, maxY);
