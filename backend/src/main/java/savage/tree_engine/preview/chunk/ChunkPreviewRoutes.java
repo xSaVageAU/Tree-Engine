@@ -53,7 +53,7 @@ public final class ChunkPreviewRoutes {
 			registries,
 			intOr(request, "chunkX", 0),
 			intOr(request, "chunkZ", 0),
-			intOr(request, "radius", 0),
+			chunkSpan(request),
 			request.has("seed") ? request.get("seed").getAsLong() : 0L,
 			!request.has("decoratedOnly") || !request.get("decoratedOnly").getAsBoolean(),
 			intOrNull(request, "minY"),
@@ -70,6 +70,22 @@ public final class ChunkPreviewRoutes {
 		response.addProperty("minY", result.minY());
 		response.addProperty("maxY", result.maxY());
 		Http.sendJson(exchange, 200, gson.toJson(response));
+	}
+
+	/**
+	 * How many chunks across the preview should be.
+	 *
+	 * `size` is the direct form (1 = one chunk, 2 = 2x2, 3 = 3x3). `radius` is
+	 * accepted for older callers, where 0 meant one chunk and 1 meant 3x3 -
+	 * which could not express an even span at all, and 2x2 is a useful middle
+	 * step between one chunk and nine.
+	 */
+	private static int chunkSpan(JsonObject request) {
+		Integer size = intOrNull(request, "size");
+		if (size != null) {
+			return size;
+		}
+		return intOr(request, "radius", 0) * 2 + 1;
 	}
 
 	private static Integer intOrNull(JsonObject object, String key) {

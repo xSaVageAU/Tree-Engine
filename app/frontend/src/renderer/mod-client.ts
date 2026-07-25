@@ -165,7 +165,10 @@ export interface ChunkPreviewRequest {
 	sessionId?: string
 	chunkX?: number
 	chunkZ?: number
-	// 0 = one chunk, 1 = 3x3. The backend caps the total.
+	// Chunks across: 1 = one chunk, 2 = 2x2, 3 = 3x3. The backend caps the
+	// total. `radius` is the older form and is still accepted, but it cannot
+	// express an even span.
+	size?: number
 	radius?: number
 	seed?: number
 	// Only the blocks decoration added, rather than the whole chunk.

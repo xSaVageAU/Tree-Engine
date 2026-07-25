@@ -62,28 +62,35 @@ public final class ChunkPreviewer {
 
 
 	public Result preview(
-		RegistryAccess registries, int centerX, int centerZ, int radius,
+		RegistryAccess registries, int centerX, int centerZ, int size,
 		long seed, boolean fullChunk, Integer requestedMinY, Integer requestedMaxY) {
 
-		int span = radius * 2 + 1;
-		if (radius < 0) {
-			throw ApiException.badRequest("radius must be >= 0");
+		if (size < 1) {
+			throw ApiException.badRequest("size must be at least 1 chunk");
 		}
-		if (span * span > MAX_CHUNKS) {
+		if (size * size > MAX_CHUNKS) {
 			throw ApiException.badRequest(
-				"Requested " + (span * span) + " chunks; the limit is " + MAX_CHUNKS);
+				"Requested " + (size * size) + " chunks; the limit is " + MAX_CHUNKS);
 		}
+
+		// A square of `size` chunks, centred on the requested one as closely as
+		// an even size allows: 1 -> just it, 2 -> it plus the +x/+z corner,
+		// 3 -> it and all eight neighbours.
+		int before = (size - 1) / 2;
+		int after = size / 2;
+		int minChunkX = centerX - before;
+		int maxChunkX = centerX + after;
+		int minChunkZ = centerZ - before;
+		int maxChunkZ = centerZ + after;
 
 		// Snapshotting reads live chunks, so it has to happen on the server
 		// thread. Decoration afterwards works purely on the copies and stays
 		// off it, keeping the game loop free.
-		int outer = radius + MARGIN;
 		List<TerrainSnapshot> all = server.submit(() -> {
 			List<TerrainSnapshot> out = new ArrayList<>();
-			for (int dx = -outer; dx <= outer; dx++) {
-				for (int dz = -outer; dz <= outer; dz++) {
-					out.add(TerrainSnapshot.capture(
-						server.overworld(), new ChunkPos(centerX + dx, centerZ + dz)));
+			for (int x = minChunkX - MARGIN; x <= maxChunkX + MARGIN; x++) {
+				for (int z = minChunkZ - MARGIN; z <= maxChunkZ + MARGIN; z++) {
+					out.add(TerrainSnapshot.capture(server.overworld(), new ChunkPos(x, z)));
 				}
 			}
 			return out;
@@ -93,8 +100,9 @@ public final class ChunkPreviewer {
 		// the margin exists purely so neighbour lookups resolve.
 		List<TerrainSnapshot> requested = new ArrayList<>();
 		for (TerrainSnapshot snapshot : all) {
-			if (Math.abs(snapshot.pos().x() - centerX) <= radius
-				&& Math.abs(snapshot.pos().z() - centerZ) <= radius) {
+			int x = snapshot.pos().x();
+			int z = snapshot.pos().z();
+			if (x >= minChunkX && x <= maxChunkX && z >= minChunkZ && z <= maxChunkZ) {
 				requested.add(snapshot);
 			}
 		}

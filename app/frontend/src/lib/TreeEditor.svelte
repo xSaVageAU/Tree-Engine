@@ -106,7 +106,7 @@
 	// since that is the unit generation works in.
 	let worldChunkX = $state(0)
 	let worldChunkZ = $state(0)
-	let worldRadius = $state(0)
+	let worldSize = $state(1)
 	let worldInfo = $state('')
 
 	// 0 when idle; a percentage while a large structure is being meshed.
@@ -565,7 +565,7 @@
 				sessionId: sessionId ?? undefined,
 				chunkX: worldChunkX,
 				chunkZ: worldChunkZ,
-				radius: worldRadius,
+				size: worldSize,
 				seed: previewSeed,
 			})
 			const serverMs = Math.round(performance.now() - tRequest)
@@ -1102,9 +1102,10 @@
 										<input type="number" bind:value={worldChunkZ} aria-label="Chunk Z" />
 									</label>
 									<span class="tool-sep"></span>
-									<select class="biome-select" bind:value={worldRadius} aria-label="Area size">
-										<option value={0}>1 chunk</option>
-										<option value={1}>3 × 3</option>
+									<select class="biome-select" bind:value={worldSize} aria-label="Area size">
+										<option value={1}>1 chunk</option>
+										<option value={2}>2 × 2</option>
+										<option value={3}>3 × 3</option>
 									</select>
 									<span class="tool-sep"></span>
 									<button
