@@ -109,6 +109,9 @@
 	let worldRadius = $state(0)
 	let worldInfo = $state('')
 
+	// 0 when idle; a percentage while a large structure is being meshed.
+	let meshProgress = $state(0)
+
 	let generating = $state(false)
 	let saving = $state(false)
 	let cursor = $state({ line: 1, column: 1 })
@@ -460,8 +463,14 @@
 			preview.setAutoRotate(autoRotateOn)
 			window.addEventListener('resize', onWindowResize)
 		} else {
-			await preview.setBlocks(blocks, assetsBaseURL, biome)
+			// Meshing a dense chunk takes seconds even spread across frames,
+			// so report it - progress that is visibly moving reads very
+			// differently from a window that has simply stopped.
+			await preview.setBlocks(blocks, assetsBaseURL, biome, (done, total) => {
+				if (total > 4) meshProgress = Math.round((done / total) * 100)
+			})
 		}
+		meshProgress = 0
 	}
 
 	async function runGenerate(): Promise<void> {
@@ -1119,7 +1128,9 @@
 									</button>
 								</div>
 							</div>
-							{#if worldInfo}
+							{#if meshProgress > 0}
+								<div class="world-readout mono">rendering {meshProgress}%</div>
+							{:else if worldInfo}
 								<div class="world-readout mono">{worldInfo}</div>
 							{/if}
 						{:else if activeTree}

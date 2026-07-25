@@ -5,7 +5,7 @@
 // BuiltStructure + AssetResources and it draws the tree; call setStructure()
 // to swap in a freshly generated one without recreating the GL context.
 
-import { StructureRenderer } from 'deepslate'
+import { Structure, StructureRenderer } from 'deepslate'
 import { mat4, vec3 } from 'gl-matrix'
 import { applyBiomeTint, DEFAULT_BIOME } from './biome-colors'
 import { AssetResources } from './resources'
@@ -30,6 +30,47 @@ export function takeRenderTimings(): RenderTimings | null {
 	const timings = lastRenderTimings
 	lastRenderTimings = null
 	return timings
+}
+
+// Size of the sub-chunks meshing is split into.
+//
+// Deliberately far below deepslate's default of 16. Measured on a 48x11x48
+// bamboo-like structure (~25k blocks, nothing cullable), meshing every slice:
+//
+//   16^3    9 slices   10.2s total   1230ms worst frame
+//    8^3   72 slices    8.0s total    575ms worst frame
+//    4^3  432 slices    7.4s total     29ms worst frame
+//
+// Smaller slices are not just smoother, they are faster overall - each slice
+// merges into a much smaller quad array, and that outweighs the extra passes
+// over the block list. 4^3 is the point where a slice fits comfortably inside
+// a frame.
+const SLICE_SIZE = 4
+
+// How long to spend meshing per frame. Under a 16ms frame with room to spare
+// for the browser's own work, so the window stays responsive.
+const FRAME_BUDGET_MS = 10
+
+function nextFrame(): Promise<void> {
+	return new Promise((resolve) => requestAnimationFrame(() => resolve()))
+}
+
+/**
+ * Points an existing renderer at a new structure without triggering a full
+ * rebuild.
+ *
+ * setStructure() would remesh everything synchronously, which is exactly what
+ * this avoids. Both fields are private in deepslate's types but are plain
+ * assigned properties at runtime, the same reach-past already used for
+ * atlasTexture.
+ */
+function adoptStructure(renderer: StructureRenderer, structure: Structure): void {
+	const internals = renderer as unknown as {
+		structure: Structure
+		chunkBuilder: { structure: Structure }
+	}
+	internals.structure = structure
+	internals.chunkBuilder.structure = structure
 }
 
 export class TreePreview {
@@ -65,8 +106,14 @@ export class TreePreview {
 		this.showGrid = options.showGrid ?? true
 		this.viewDist = Math.max(8, Math.max(...built.size) * 1.4)
 		applyBiomeTint(this.currentBiome)
-		this.renderer = new StructureRenderer(gl, built.structure, resources)
+		// Empty structure here for the same reason as setBlocks: meshing is
+		// done in slices afterwards so the first render does not freeze the
+		// window either.
+		this.renderer = new StructureRenderer(gl, new Structure(built.size), resources, {
+			chunkSize: SLICE_SIZE,
+		})
 		this.fixAtlasFiltering()
+		adoptStructure(this.renderer, built.structure)
 		this.attachControls(canvas)
 		this.resize(canvas)
 	}
@@ -84,13 +131,19 @@ export class TreePreview {
 		const built = buildStructure(blocks)
 		const resources = await AssetResources.load(baseURL, built.specs)
 		const preview = new TreePreview(canvas, gl, built, resources, options)
+		await preview.meshInSlices(built.size, ++preview.meshGeneration)
 		preview.requestRender()
 		return preview
 	}
 
 	// Swaps in a newly generated structure. Reloads resources because a different
 	// tree may reference blocks/textures the current atlas doesn't contain.
-	async setBlocks(blocks: ApiBlock[], baseURL: string, biome = DEFAULT_BIOME): Promise<void> {
+	async setBlocks(
+		blocks: ApiBlock[],
+		baseURL: string,
+		biome = DEFAULT_BIOME,
+		onProgress?: (done: number, total: number) => void,
+	): Promise<void> {
 		const t0 = performance.now()
 		const built = buildStructure(blocks)
 		const t1 = performance.now()
@@ -101,9 +154,23 @@ export class TreePreview {
 		this.currentBiome = biome
 		this.viewDist = Math.max(8, Math.max(...built.size) * 1.4)
 		applyBiomeTint(biome)
-		this.renderer = new StructureRenderer(this.gl, built.structure, this.resources)
+
+		// Anything already meshing belongs to a superseded structure.
+		const generation = ++this.meshGeneration
+
+		// The renderer is built against an *empty* structure so its
+		// constructor has nothing to mesh, then the real structure is swapped
+		// in and meshed a slice at a time. Handing the real one to the
+		// constructor meshes the whole thing synchronously, which is a
+		// multi-second freeze on a dense chunk - measured at over 10s for a
+		// bamboo forest.
+		this.renderer = new StructureRenderer(this.gl, new Structure(built.size), this.resources, {
+			chunkSize: SLICE_SIZE,
+		})
 		this.fixAtlasFiltering()
-		this.requestRender()
+		adoptStructure(this.renderer, built.structure)
+
+		await this.meshInSlices(built.size, generation, onProgress)
 
 		lastRenderTimings = {
 			buildMs: Math.round(t1 - t0),
@@ -112,14 +179,56 @@ export class TreePreview {
 		}
 	}
 
+	/**
+	 * Meshes the structure a few sub-chunks per frame.
+	 *
+	 * The total work is unchanged - this is the same geometry either way - but
+	 * it is spread across frames so the window keeps responding and the
+	 * preview visibly fills in rather than appearing all at once after a
+	 * stall.
+	 */
+	private async meshInSlices(
+		size: [number, number, number],
+		generation: number,
+		onProgress?: (done: number, total: number) => void,
+	): Promise<void> {
+		const positions: [number, number, number][] = []
+		for (let x = 0; x * SLICE_SIZE < size[0]; x++) {
+			for (let y = 0; y * SLICE_SIZE < size[1]; y++) {
+				for (let z = 0; z * SLICE_SIZE < size[2]; z++) {
+					positions.push([x, y, z])
+				}
+			}
+		}
+
+		// Work to a time budget rather than a fixed slice count: slices vary
+		// enormously in cost (solid rock versus open air), so a fixed batch
+		// either wastes frames on empty ones or overruns on dense ones.
+		let done = 0
+		while (done < positions.length) {
+			if (generation !== this.meshGeneration) return
+			const frameStart = performance.now()
+			do {
+				this.renderer.updateStructureBuffers([positions[done++]])
+			} while (done < positions.length && performance.now() - frameStart < FRAME_BUDGET_MS)
+
+			this.requestRender()
+			onProgress?.(done, positions.length)
+			await nextFrame()
+		}
+	}
+
 	// Re-tints and rebuilds the mesh for the current structure using an already-
 	// loaded resource set - no network refetch needed, just a fast local rebuild.
 	setBiome(biome: string): void {
 		this.currentBiome = biome
 		applyBiomeTint(biome)
-		this.renderer = new StructureRenderer(this.gl, this.structure.structure, this.resources)
+		const generation = ++this.meshGeneration
+		this.renderer = new StructureRenderer(
+			this.gl, new Structure(this.structure.size), this.resources, { chunkSize: SLICE_SIZE })
 		this.fixAtlasFiltering()
-		this.requestRender()
+		adoptStructure(this.renderer, this.structure.structure)
+		void this.meshInSlices(this.structure.size, generation)
 	}
 
 	// deepslate's StructureRenderer mipmaps the atlas texture but only ever sets
@@ -165,6 +274,8 @@ export class TreePreview {
 		mat4.translate(view, view, [-this.center[0], -this.center[1], -this.center[2]])
 		return view
 	}
+
+	private meshGeneration = 0
 
 	private requestRender(): void {
 		requestAnimationFrame(() => this.draw())
