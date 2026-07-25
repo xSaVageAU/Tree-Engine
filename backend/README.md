@@ -102,9 +102,9 @@ datapack.
 **The vertical window matters.** A chunk spans y −64→320 and is overwhelmingly
 underground stone; returning all of it is both slow and useless to look at.
 
-The preview is cut at a flat height, `minY` if given and **y=32** otherwise —
-below sea level (63) so shorelines survive, above the deepslate transition
-(~0) so the visible profile is terrain you would build on. Two earlier and
+The preview is cut at a flat height, `minY` if given and **y=50** otherwise —
+below sea level (63) so shorelines survive, well above the deepslate
+transition (~0) so the visible profile is terrain you would build on. Two earlier and
 cleverer schemes are worth not repeating: fitting the window to the region's
 surface, and a per-column crust following it. Both bounded the volume better
 and both produced artefacts on sloped ground that read as missing terrain. A

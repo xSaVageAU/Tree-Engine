@@ -48,12 +48,14 @@ public final class ChunkPreviewer {
 	/**
 	 * Default floor for a preview.
 	 *
-	 * Comfortably below sea level (63) so shorelines and water are intact, and
-	 * comfortably above the deepslate transition (~0) so the visible profile
-	 * is the terrain you build on rather than a slab of deepslate. Everything
-	 * below is simply not generated into the response.
+	 * Below sea level (63) so shorelines and water are intact, and well above
+	 * the deepslate transition (~0) so the visible profile is the terrain you
+	 * build on. Everything below is simply not generated into the response,
+	 * which is also the cheapest lever there is on preview size: every level
+	 * raised is a full 16x16 slab per chunk that never has to be emitted,
+	 * transferred or meshed.
 	 */
-	private static final int DEFAULT_FLOOR_Y = 32;
+	private static final int DEFAULT_FLOOR_Y = 50;
 
 	/** Headroom above the tallest thing, so nothing is clipped at the top. */
 	private static final int HEADROOM = 2;
