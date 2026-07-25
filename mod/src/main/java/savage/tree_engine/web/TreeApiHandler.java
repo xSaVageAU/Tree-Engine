@@ -15,6 +15,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.world.gen.feature.ConfiguredFeature;
 import net.minecraft.world.gen.feature.TreeFeatureConfig;
 import savage.tree_engine.TreeEngine;
+import savage.tree_engine.config.ProjectPaths;
 import savage.tree_engine.config.TreeConfigManager;
 import savage.tree_engine.config.TreeReplacerManager;
 import savage.tree_engine.config.MainConfig;
@@ -26,7 +27,6 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -34,7 +34,6 @@ import savage.tree_engine.web.PathValidator;
 
 public class TreeApiHandler implements HttpHandler {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path DATAPACK_DIR = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees", "data", "tree_engine", "worldgen", "configured_feature");
     private final MinecraftServer minecraftServer;
 
     public TreeApiHandler(MinecraftServer server) {
@@ -208,8 +207,9 @@ public class TreeApiHandler implements HttpHandler {
 
     private void handleList(HttpExchange exchange) throws IOException {
         try {
-            Files.createDirectories(DATAPACK_DIR);
-            List<String> treeIds = Files.list(DATAPACK_DIR)
+            Path datapackDir = ProjectPaths.getConfiguredFeatureDir();
+            Files.createDirectories(datapackDir);
+            List<String> treeIds = Files.list(datapackDir)
                 .filter(Files::isRegularFile)
                 .filter(p -> p.toString().endsWith(".json"))
                 .map(p -> p.getFileName().toString().replace(".json", ""))
@@ -234,7 +234,7 @@ public class TreeApiHandler implements HttpHandler {
             // Safely resolve the file path
             Path file;
             try {
-                file = PathValidator.resolveSafePath(id + ".json", DATAPACK_DIR);
+                file = PathValidator.resolveSafePath(id + ".json", ProjectPaths.getConfiguredFeatureDir());
             } catch (SecurityException e) {
                 TreeEngine.LOGGER.warn("Path traversal attempt in tree GET: {}", id);
                 sendResponse(exchange, 400, "{\"error\":\"Invalid tree ID\"}");
@@ -272,8 +272,8 @@ public class TreeApiHandler implements HttpHandler {
         }
 
         try {
-            Path file = PathValidator.resolveSafePath(id + ".json", PLACED_FEATURE_DIR);
-            
+            Path file = PathValidator.resolveSafePath(id + ".json", ProjectPaths.getPlacedFeatureDir());
+
             if (!Files.exists(file)) {
                 // Return default if not exists (should have been created by ensurePlacedFeaturesExist, but just in case)
                 JsonObject defaultPlacement = new JsonObject();
@@ -306,21 +306,20 @@ public class TreeApiHandler implements HttpHandler {
                 return;
             }
 
-            Path placedFile = PLACED_FEATURE_DIR.resolve(id + ".json");
-            Files.createDirectories(PLACED_FEATURE_DIR);
-            
+            Path placedDir = ProjectPaths.getPlacedFeatureDir();
+            Path placedFile = placedDir.resolve(id + ".json");
+            Files.createDirectories(placedDir);
+
             try (java.io.FileWriter writer = new java.io.FileWriter(placedFile.toFile())) {
                 GSON.toJson(json, writer);
             }
-            
+
             sendResponse(exchange, 200, "{\"success\": true}");
         } catch (Exception e) {
             TreeEngine.LOGGER.error("Failed to save placement: {}", id, e);
             sendResponse(exchange, 500, "{\"error\":\"Failed to save placement\"}");
         }
     }
-
-    private static final Path PLACED_FEATURE_DIR = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees", "data", "tree_engine", "worldgen", "placed_feature");
 
     private void handleSave(HttpExchange exchange) throws IOException {
         try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
@@ -359,22 +358,24 @@ public class TreeApiHandler implements HttpHandler {
             }
 
             // 1. Save ConfiguredFeature
-            Path configFile = DATAPACK_DIR.resolve(id + ".json");
-            Files.createDirectories(DATAPACK_DIR);
-            
+            Path datapackDir = ProjectPaths.getConfiguredFeatureDir();
+            Path configFile = datapackDir.resolve(id + ".json");
+            Files.createDirectories(datapackDir);
+
             // Remove 'id' field if present (cleanup)
             if (json.isJsonObject() && json.getAsJsonObject().has("id")) {
                 json.getAsJsonObject().remove("id");
             }
-            
+
             try (java.io.FileWriter writer = new java.io.FileWriter(configFile.toFile())) {
                 GSON.toJson(json, writer);
             }
 
             // 2. Save PlacedFeature
             // We need a PlacedFeature to be able to use this tree in a simple_random_selector (Tree Replacer)
-            Path placedFile = PLACED_FEATURE_DIR.resolve(id + ".json");
-            Files.createDirectories(PLACED_FEATURE_DIR);
+            Path placedDir = ProjectPaths.getPlacedFeatureDir();
+            Path placedFile = placedDir.resolve(id + ".json");
+            Files.createDirectories(placedDir);
             
             JsonObject placedFeature = new JsonObject();
             placedFeature.addProperty("feature", "tree_engine:" + id);
@@ -425,13 +426,13 @@ public class TreeApiHandler implements HttpHandler {
             boolean deleted = false;
 
             // Delete ConfiguredFeature
-            Path configFile = DATAPACK_DIR.resolve(id + ".json");
+            Path configFile = ProjectPaths.getConfiguredFeatureDir().resolve(id + ".json");
             if (Files.deleteIfExists(configFile)) {
                 deleted = true;
             }
 
             // Delete PlacedFeature
-            Path placedFile = PLACED_FEATURE_DIR.resolve(id + ".json");
+            Path placedFile = ProjectPaths.getPlacedFeatureDir().resolve(id + ".json");
             Files.deleteIfExists(placedFile);
 
             // Remove from registry if present
@@ -630,8 +631,7 @@ public class TreeApiHandler implements HttpHandler {
     private void reloadAllCustomTrees() {
         if (!MainConfig.get().hot_reload_enabled) return;
 
-        Path treeDir = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees",
-                                "data", "tree_engine", "worldgen", "configured_feature");
+        Path treeDir = ProjectPaths.getConfiguredFeatureDir();
 
         try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(treeDir, "*.json")) {
             for (Path file : stream) {

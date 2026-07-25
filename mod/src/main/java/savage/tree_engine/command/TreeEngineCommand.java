@@ -11,6 +11,7 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
 import net.minecraft.world.gen.feature.ConfiguredFeature;
 import savage.tree_engine.TreeEngine;
+import savage.tree_engine.config.ProjectPaths;
 import savage.tree_engine.config.TreeReplacerManager;
 import savage.tree_engine.util.RegistryUtils;
 import savage.tree_engine.web.WebEditorServer;
@@ -18,7 +19,6 @@ import savage.tree_engine.web.WebEditorServer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -218,8 +218,7 @@ public class TreeEngineCommand {
     }
 
     private static void reloadAllCustomTrees(net.minecraft.server.MinecraftServer server) {
-        Path treeDir = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees",
-                                "data", "tree_engine", "worldgen", "configured_feature");
+        Path treeDir = ProjectPaths.getConfiguredFeatureDir();
 
         try (Stream<Path> files = Files.list(treeDir)) {
             files.filter(p -> p.toString().endsWith(".json"))

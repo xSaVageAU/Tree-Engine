@@ -1,25 +1,29 @@
 <script lang="ts">
 	import { onMount } from 'svelte'
 	import { GetSettings, SaveSettings } from '../../wailsjs/go/main/App'
+	import { instance } from '../../wailsjs/go/models'
+	import Icon from './Icon.svelte'
 
 	let { onClose }: { onClose: () => void } = $props()
 
-	let autoStartOnLaunch = $state(false)
+	// Kept whole (not just the one field this screen edits) so saving never
+	// clobbers other settings, like the recent-projects list, that this modal
+	// doesn't have a control for.
+	let settings = $state<instance.Settings | undefined>(undefined)
 	let loading = $state(true)
 	let saving = $state(false)
 
 	onMount(async () => {
-		const settings = await GetSettings()
-		autoStartOnLaunch = settings.autoStartOnLaunch
+		settings = await GetSettings()
 		loading = false
 	})
 
 	async function toggleAutoStart(): Promise<void> {
-		const next = !autoStartOnLaunch
-		autoStartOnLaunch = next
+		if (!settings) return
+		settings.autoStartOnLaunch = !settings.autoStartOnLaunch
 		saving = true
 		try {
-			await SaveSettings({ autoStartOnLaunch: next })
+			await SaveSettings(settings)
 		} finally {
 			saving = false
 		}
@@ -37,92 +41,92 @@
 		if (e.key === 'Escape') onClose()
 	}}
 >
-	<div class="modal">
-		<h3>Settings</h3>
+	<div class="modal settings-modal">
+		<div class="modal-head">
+			<div class="modal-title"><Icon name="sliders" size={15} />Settings</div>
+			<button class="icon-btn" aria-label="Close" onclick={onClose}><Icon name="close" size={15} /></button>
+		</div>
 
-		{#if loading}
-			<p>Loading...</p>
-		{:else}
-			<label class="setting-row">
-				<div class="setting-text">
-					<div class="setting-label">Auto-start Minecraft server on launch</div>
-					<div class="setting-hint">Skips straight to starting the server when you open Tree Engine.</div>
+		<div class="modal-body">
+			{#if loading}
+				<div class="empty-state">
+					<Icon name="spinner" size={26} class="spin" />
+					<div class="empty-copy">Loading settings...</div>
 				</div>
-				<input type="checkbox" checked={autoStartOnLaunch} disabled={saving} onchange={toggleAutoStart} />
-			</label>
+			{:else if settings}
+				<div class="eyebrow">Startup</div>
+				<label class="setting-row" class:on={settings.autoStartOnLaunch}>
+					<div class="setting-text">
+						<div class="setting-label">Auto-start Minecraft server on launch</div>
+						<div class="setting-hint">Skips straight to starting the server when you open Tree Engine.</div>
+					</div>
+					<input type="checkbox" checked={settings.autoStartOnLaunch} disabled={saving} onchange={toggleAutoStart} />
+				</label>
 
-			<p class="more-hint">More settings (Minecraft version, Java version/path) are coming soon.</p>
-		{/if}
+				<div class="soon">
+					<Icon name="info" size={14} />
+					<span>Minecraft version and Java version/path settings are coming soon.</span>
+				</div>
+			{/if}
+		</div>
 
-		<div class="row">
+		<div class="modal-foot">
 			<button class="btn secondary" onclick={onClose}>Close</button>
 		</div>
 	</div>
 </div>
 
 <style>
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 2000;
+	.settings-modal {
+		width: min(470px, 92vw);
 	}
-	.modal {
-		width: min(440px, 90vw);
-		background: var(--bg);
-		border: 1px solid var(--panel-border);
-		border-radius: 8px;
-		padding: 20px;
-		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-	}
-	h3 {
-		margin: 0 0 12px;
-	}
-	p {
-		margin: 0 0 10px;
-		color: var(--text-dim);
-		font-size: 13px;
-	}
+
 	.setting-row {
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: 16px;
-		background: var(--panel);
-		border: 1px solid var(--panel-border);
-		border-radius: 6px;
-		padding: 12px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--r-md);
+		padding: 13px 14px;
 		cursor: pointer;
+		transition: border-color var(--fast), background var(--fast);
 	}
+
+	.setting-row:hover {
+		border-color: var(--line-strong);
+	}
+
+	.setting-row.on {
+		border-color: var(--accent-line);
+		background: linear-gradient(180deg, var(--accent-wash), transparent), var(--bg-sunken);
+	}
+
 	.setting-text {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
 	}
+
 	.setting-label {
-		font-size: 13px;
+		font-size: 12.5px;
+		font-weight: 550;
+		color: var(--text);
 	}
+
 	.setting-hint {
-		font-size: 12px;
-		color: var(--text-dim);
+		font-size: 11.5px;
+		color: var(--text-faint);
+		line-height: 1.45;
 	}
-	.setting-row input[type='checkbox'] {
-		margin-top: 2px;
-		flex-shrink: 0;
-	}
-	.more-hint {
-		margin-top: 10px;
-		margin-bottom: 0;
-		font-size: 12px;
-		font-style: italic;
-	}
-	.row {
+
+	.soon {
 		display: flex;
-		gap: 10px;
-		justify-content: flex-end;
-		margin-top: 16px;
+		align-items: center;
+		gap: 8px;
+		font-size: 11.5px;
+		color: var(--text-faint);
+		padding: 2px;
 	}
 </style>

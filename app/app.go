@@ -43,12 +43,13 @@ func waitForHTTPReady(ctx context.Context, url string, timeout time.Duration) bo
 type Phase string
 
 const (
-	PhaseNeedsSetup Phase = "needs_setup"
-	PhaseSettingUp  Phase = "setting_up"
-	PhaseStopped    Phase = "stopped" // set up, server not currently running
-	PhaseStarting   Phase = "starting"
-	PhaseRunning    Phase = "running" // server up, web editor confirmed live
-	PhaseError      Phase = "error"
+	PhaseNeedsSetup   Phase = "needs_setup"
+	PhaseSettingUp    Phase = "setting_up"
+	PhaseNeedsProject Phase = "needs_project" // set up, but no project folder is open yet
+	PhaseStopped      Phase = "stopped"       // set up, project open, server not currently running
+	PhaseStarting     Phase = "starting"
+	PhaseRunning      Phase = "running" // server up, web editor confirmed live
+	PhaseError        Phase = "error"
 )
 
 // StatusPayload is emitted to the frontend on every state change.
@@ -101,16 +102,26 @@ func (a *App) startup(ctx context.Context) {
 	a.state = state
 	a.settings = settings
 	if state.SetupComplete {
-		a.phase = PhaseStopped
+		a.phase = a.phaseAfterSetupLocked()
 	}
 	a.mu.Unlock()
 
-	if state.SetupComplete && settings.AutoStartOnLaunch {
+	if state.SetupComplete && state.ActiveProjectPath != "" && settings.AutoStartOnLaunch {
 		a.StartServer()
 		return
 	}
 
 	a.emitCurrentStatus()
+}
+
+// phaseAfterSetupLocked is the phase to show once setup is known complete:
+// needs_project if no project folder has been opened yet, else stopped.
+// Caller must hold a.mu.
+func (a *App) phaseAfterSetupLocked() Phase {
+	if a.state == nil || a.state.ActiveProjectPath == "" {
+		return PhaseNeedsProject
+	}
+	return PhaseStopped
 }
 
 // GetSettings returns the current launcher settings for the frontend's
@@ -192,9 +203,10 @@ func (a *App) RunSetup(eulaAccepted bool) {
 
 	a.mu.Lock()
 	a.state = state
+	phase := a.phaseAfterSetupLocked()
 	a.mu.Unlock()
 
-	a.emitStatus(PhaseStopped, "Setup complete.")
+	a.emitStatus(phase, "Setup complete.")
 }
 
 // StartServer boots the managed Minecraft server using the previously
@@ -209,6 +221,10 @@ func (a *App) StartServer() {
 		a.emitStatus(PhaseError, "Cannot start: setup has not completed yet.")
 		return
 	}
+	if state.ActiveProjectPath == "" {
+		a.emitStatus(PhaseNeedsProject, "Cannot start: no project is open yet.")
+		return
+	}
 	if alreadyRunning {
 		return
 	}
@@ -221,7 +237,7 @@ func (a *App) StartServer() {
 		a.emitStatus(PhaseError, fmt.Sprintf("Failed to update mod jar: %v", err))
 		return
 	}
-	if err := instance.WriteModConfig(a.layout, state.Port, state.AuthToken); err != nil {
+	if err := instance.WriteModConfig(a.layout, state.Port, state.AuthToken, state.ActiveProjectPath); err != nil {
 		a.emitStatus(PhaseError, fmt.Sprintf("Failed to write mod config: %v", err))
 		return
 	}
@@ -286,10 +302,20 @@ func (a *App) StartServer() {
 
 	go func() {
 		_ = proc.Wait()
+		// A project switch can stop this process and launch a replacement
+		// before this goroutine gets to run - only clear a.proc and report
+		// "stopped" if we're still the process the app is tracking, so a
+		// fast stop-then-start can't have its new process's tracking wiped
+		// out by this stale exit notification for the old one.
 		a.mu.Lock()
-		a.proc = nil
+		stillCurrent := a.proc == proc
+		if stillCurrent {
+			a.proc = nil
+		}
 		a.mu.Unlock()
-		a.emitStatus(PhaseStopped, "Server stopped.")
+		if stillCurrent {
+			a.emitStatus(PhaseStopped, "Server stopped.")
+		}
 	}()
 }
 
@@ -367,6 +393,148 @@ func (a *App) EnsureAssets() AssetsPayload {
 // Explorer, for users who want to inspect it directly.
 func (a *App) OpenInstanceFolder() {
 	_ = exec.Command("explorer", a.layout.InstanceDir).Start()
+}
+
+// ProjectInfo describes a project folder for the frontend - either the
+// currently open one (GetCurrentProject) or an entry in the recent-projects
+// list (GetRecentProjects). A zero value means "no project".
+type ProjectInfo struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+func projectInfoFor(path string) ProjectInfo {
+	if path == "" {
+		return ProjectInfo{}
+	}
+	return ProjectInfo{Path: path, Name: filepath.Base(path)}
+}
+
+// GetCurrentProject returns the currently open project, or a zero ProjectInfo
+// if none is open yet.
+func (a *App) GetCurrentProject() ProjectInfo {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.state == nil {
+		return ProjectInfo{}
+	}
+	return projectInfoFor(a.state.ActiveProjectPath)
+}
+
+// GetRecentProjects returns previously opened project folders, most recent
+// first, excluding the currently open one and any folder that no longer
+// exists on disk.
+func (a *App) GetRecentProjects() []ProjectInfo {
+	a.mu.Lock()
+	var recents []string
+	if a.settings != nil {
+		recents = a.settings.RecentProjects
+	}
+	current := ""
+	if a.state != nil {
+		current = a.state.ActiveProjectPath
+	}
+	a.mu.Unlock()
+
+	out := make([]ProjectInfo, 0, len(recents))
+	for _, p := range recents {
+		if p == current {
+			continue
+		}
+		if info, err := os.Stat(p); err != nil || !info.IsDir() {
+			continue // folder moved/deleted since it was last opened
+		}
+		out = append(out, projectInfoFor(p))
+	}
+	return out
+}
+
+// OpenProjectFolder shows a native folder picker and opens the chosen folder
+// as the active project, scaffolding it into a valid datapack first if it
+// isn't one yet (see instance.ScaffoldProjectIfNeeded). If a server is
+// currently running, it's restarted against the new project - switching
+// projects always requires a restart, since Minecraft only loads worldgen
+// registries at boot. Returns a zero ProjectInfo (no error) if the user
+// cancels the picker.
+func (a *App) OpenProjectFolder() (ProjectInfo, error) {
+	path, err := wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "Open Project Folder",
+	})
+	if err != nil || path == "" {
+		return ProjectInfo{}, err
+	}
+	return a.openProject(path)
+}
+
+// OpenRecentProject re-opens a folder from the recent-projects list, without
+// showing the picker.
+func (a *App) OpenRecentProject(path string) (ProjectInfo, error) {
+	return a.openProject(path)
+}
+
+func (a *App) openProject(path string) (ProjectInfo, error) {
+	if err := instance.ValidateProjectPath(a.layout, path); err != nil {
+		return ProjectInfo{}, err
+	}
+	if err := instance.ScaffoldProjectIfNeeded(path); err != nil {
+		return ProjectInfo{}, err
+	}
+
+	a.mu.Lock()
+	if a.state == nil {
+		a.mu.Unlock()
+		return ProjectInfo{}, fmt.Errorf("launcher state not loaded yet")
+	}
+	a.state.ActiveProjectPath = path
+	stateErr := a.state.Save(a.layout.StateFile)
+	if a.settings == nil {
+		a.settings = &instance.Settings{}
+	}
+	a.settings.RecentProjects = a.settings.WithRecentProject(path)
+	settingsErr := a.settings.Save(a.layout.SettingsFile)
+	wasRunning := a.proc != nil && a.proc.Running()
+	a.mu.Unlock()
+
+	if stateErr != nil {
+		return ProjectInfo{}, fmt.Errorf("failed to save launcher state: %w", stateErr)
+	}
+	// A failure to persist the recent-projects convenience list shouldn't
+	// block opening the project itself - the project is open either way.
+	_ = settingsErr
+
+	if wasRunning {
+		a.emitStatus(PhaseStarting, "Restarting for new project...")
+		a.StopServer()
+		a.StartServer()
+	} else {
+		a.mu.Lock()
+		phase := a.phaseAfterSetupLocked()
+		a.mu.Unlock()
+		a.emitStatus(phase, "Project opened.")
+	}
+
+	return projectInfoFor(path), nil
+}
+
+// CloseProject stops the server if running and clears the active project,
+// returning the app to the needs-project screen.
+func (a *App) CloseProject() {
+	a.mu.Lock()
+	running := a.proc != nil && a.proc.Running()
+	a.mu.Unlock()
+
+	if running {
+		a.StopServer()
+	}
+
+	a.mu.Lock()
+	if a.state != nil {
+		a.state.ActiveProjectPath = ""
+		_ = a.state.Save(a.layout.StateFile)
+	}
+	a.mu.Unlock()
+
+	a.emitStatus(PhaseNeedsProject, "Project closed.")
 }
 
 // ImportDatapackZip lets the user pick a datapack .zip (e.g. downloaded from

@@ -1,14 +1,50 @@
+/* Base layer. Loaded after app.css so it can use the design tokens. */
+
 html {
-    background-color: #1b2636;
-    color: #e7ecf5;
+	background-color: var(--bg);
+	color: var(--text);
 }
 
 body {
-    margin: 0;
-    color: #e7ecf5;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	margin: 0;
+	color: var(--text);
+	background: var(--bg);
+	font-family: var(--font-sans);
+	font-size: 13px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+	overflow: hidden;
+}
+
+/* Ambient canopy light: a soft off-centre moss glow plus a fine grain wash.
+   Purely decorative, sits behind every surface and never eats pointer events. */
+body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: -2;
+	pointer-events: none;
+	background:
+		radial-gradient(120% 80% at 78% -10%, rgba(139, 197, 63, 0.075), transparent 55%),
+		radial-gradient(90% 70% at 8% 108%, rgba(63, 122, 90, 0.06), transparent 60%);
+}
+
+body::after {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	opacity: 0.22;
+	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E");
+}
+
+::selection {
+	background: rgba(139, 197, 63, 0.28);
+	color: var(--text);
 }
 
 #app {
-    height: 100vh;
+	height: 100vh;
 }

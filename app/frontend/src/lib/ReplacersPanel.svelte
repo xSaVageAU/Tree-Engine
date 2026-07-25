@@ -15,6 +15,7 @@
 		type Replacer,
 		type ReplacerAlternative,
 	} from '../renderer/mod-client'
+	import Icon from './Icon.svelte'
 
 	let { conn, customTrees, onBack }: { conn: ModConnection; customTrees: string[]; onBack: () => void } = $props()
 
@@ -139,255 +140,466 @@
 			alert('Failed to delete tree replacer: ' + (e as Error).message)
 		}
 	}
+
+	// Running total shown live in the form so the 1.0 cap isn't a surprise on save.
+	const chanceTotal = $derived(formAlternatives.reduce((sum, a) => sum + (Number(a.chance) || 0), 0))
 </script>
 
 <div class="replacers-panel">
-	<div class="settings-header">
-		<button class="back-btn" onclick={onBack}>← Back</button>
-		<h2>Tree Replacers</h2>
+	<div class="panel-head">
+		<div class="head-titles">
+			<h2>Tree Replacers</h2>
+			<span class="head-sub">Swap vanilla world-gen trees for your own</span>
+		</div>
+		{#if view === 'list'}
+			<button class="btn btn-sm" onclick={showCreateForm}><Icon name="plus" size={13} />New Replacer</button>
+		{/if}
+		<button class="icon-btn" title="Close tab" aria-label="Close tab" onclick={onBack}>
+			<Icon name="close" size={15} />
+		</button>
 	</div>
 
 	{#if statusMessage}
-		<div class="status-banner">{statusMessage}</div>
+		<div class="status-banner"><Icon name="check" size={14} />{statusMessage}</div>
 	{/if}
 
 	<div class="scroll-content">
-		{#if view === 'list'}
-			<button class="btn full" onclick={showCreateForm}>+ Create New Replacer</button>
-			{#if replacers.length === 0}
-				<p class="empty">No tree replacers yet. Create one to get started!</p>
-			{:else}
-				{#each replacers as r (r.id)}
-					<div class="replacer-item">
-						<h4>{displayName(r.vanilla_tree_id)}</h4>
-						<p class="dim">{r.vanilla_tree_id}</p>
-						<p class="dim">Type: {r.type === 'SIMPLE' ? 'Simple' : 'Weighted'}</p>
-						<div class="row">
-							<button class="btn secondary btn-sm" onclick={() => showEditForm(r)}>Edit</button>
-							<button class="btn secondary btn-sm" onclick={() => remove(r.id)}>Delete</button>
+		<div class="content-width">
+			{#if view === 'list'}
+				{#if replacers.length === 0}
+					<div class="empty-state tall">
+						<Icon name="shuffle" size={38} />
+						<div class="empty-title">No replacers yet</div>
+						<div class="empty-copy">
+							A replacer intercepts a vanilla tree during world generation and substitutes one of your custom trees
+							instead.
 						</div>
-						{#if r.type === 'SIMPLE'}
-							<p class="details"><strong>Pool:</strong> {(r.features ?? []).map((f) => f.split(':').pop()).join(', ') || 'empty'}</p>
-						{:else}
-							<p class="details"><strong>Default:</strong> {r.default_tree ?? 'not set'}</p>
-							<p class="details"><strong>Alternatives:</strong> {(r.alternatives ?? []).map((a) => `${a.feature.split(':').pop()} (${(a.chance * 100).toFixed(0)}%)`).join(', ') || 'none'}</p>
-						{/if}
+						<button class="btn btn-sm" onclick={showCreateForm}><Icon name="plus" size={13} />Create Replacer</button>
 					</div>
-				{/each}
-			{/if}
-		{:else}
-			<h3>{editingId ? 'Edit' : 'Create'} Tree Replacer</h3>
-
-			<div class="control-group">
-				<label for="replacer-type">Replacer Type</label>
-				<select id="replacer-type" bind:value={formType}>
-					<option value="WEIGHTED">Weighted (Default + Chances)</option>
-					<option value="SIMPLE">Simple (Equal Chance Pool)</option>
-				</select>
-			</div>
-
-			<div class="control-group">
-				<label for="replacer-vanilla">Vanilla Tree to Replace</label>
-				<select id="replacer-vanilla" bind:value={formVanillaTreeId} disabled={!!editingId}>
-					<option value="">Select a vanilla tree...</option>
-					{#each vanillaTrees as id (id)}
-						<option value={id}>{displayName(id)} ({id})</option>
-					{/each}
-				</select>
-				{#if editingId}
-					<p class="hint">Cannot change vanilla tree for an existing replacer</p>
-				{/if}
-			</div>
-
-			{#if formType === 'WEIGHTED'}
-				<div class="control-group">
-					<label for="default-tree">Default Tree</label>
-					<p class="hint">The fallback tree (used when no alternative is selected)</p>
-					<select id="default-tree" bind:value={formDefaultTree}>
-						<option value="">Select default tree...</option>
-						{#each customTrees as tree (tree)}
-							<option value={`tree_engine:${tree}`}>{tree}</option>
-						{/each}
-					</select>
-				</div>
-
-				<div class="control-group">
-					<label for="alternatives">Weighted Alternatives</label>
-					<p class="hint">Trees that can replace the default with a specific probability</p>
-					<div class="entry-list" id="alternatives">
-						{#if customTrees.length === 0}
-							<p class="empty">No custom trees available. Create some trees first!</p>
-						{:else}
-							{#each formAlternatives as alt, i}
-								<div class="entry-row">
-									<select bind:value={alt.feature}>
-										<option value="">Select tree...</option>
-										{#each customTrees as tree (tree)}
-											<option value={`tree_engine:${tree}`}>{tree}</option>
-										{/each}
-									</select>
-									<input type="number" min="0" max="1" step="0.01" bind:value={alt.chance} />
-									<button class="remove-btn" onclick={() => removeAlternative(i)}>✕</button>
+				{:else}
+					<div class="replacer-grid">
+						{#each replacers as r (r.id)}
+							<div class="replacer-item">
+								<div class="replacer-top">
+									<div class="replacer-id">
+										<h4>{displayName(r.vanilla_tree_id)}</h4>
+										<span class="mono dim">{r.vanilla_tree_id}</span>
+									</div>
+									<span class="type-chip" class:simple={r.type === 'SIMPLE'}>
+										{r.type === 'SIMPLE' ? 'Simple' : 'Weighted'}
+									</span>
 								</div>
-							{/each}
-						{/if}
-					</div>
-					<button class="btn secondary full" onclick={addAlternative}>+ Add Alternative</button>
-					<p class="hint">💡 Chance is the probability this tree replaces the default (0.0-1.0)</p>
-				</div>
-			{:else}
-				<div class="control-group">
-					<label for="pool">Tree Pool</label>
-					<p class="hint">All trees in this pool have an equal chance of being picked</p>
-					<div class="entry-list" id="pool">
-						{#each formPool as _, i}
-							<div class="entry-row">
-								<select bind:value={formPool[i]}>
-									<option value="">Select tree...</option>
-									{#each customTrees as tree (tree)}
-										<option value={`tree_engine:${tree}`}>{tree}</option>
-									{/each}
-								</select>
-								<button class="remove-btn" onclick={() => removePoolEntry(i)}>✕</button>
+
+								<div class="replacer-body">
+									{#if r.type === 'SIMPLE'}
+										<div class="kv">
+											<span class="k">Pool</span>
+											<span class="v">{(r.features ?? []).map((f) => f.split(':').pop()).join(', ') || 'empty'}</span>
+										</div>
+									{:else}
+										<div class="kv">
+											<span class="k">Default</span>
+											<span class="v">{r.default_tree?.split(':').pop() ?? 'not set'}</span>
+										</div>
+										<div class="kv">
+											<span class="k">Alternatives</span>
+											<span class="v">
+												{#if (r.alternatives ?? []).length === 0}
+													none
+												{:else}
+													{#each r.alternatives ?? [] as a}
+														<span class="alt-chip">
+															{a.feature.split(':').pop()}
+															<b>{(a.chance * 100).toFixed(0)}%</b>
+														</span>
+													{/each}
+												{/if}
+											</span>
+										</div>
+									{/if}
+								</div>
+
+								<div class="replacer-actions">
+									<button class="btn secondary btn-sm" onclick={() => showEditForm(r)}>Edit</button>
+									<button class="icon-btn danger" aria-label="Delete replacer" onclick={() => remove(r.id)}>
+										<Icon name="trash" size={14} />
+									</button>
+								</div>
 							</div>
 						{/each}
 					</div>
-					<button class="btn secondary full" onclick={addPoolEntry}>+ Add Tree to Pool</button>
+				{/if}
+			{:else}
+				<div class="form-card">
+					<div class="eyebrow">{editingId ? 'Edit' : 'Create'} replacer</div>
+
+					<div class="control-group">
+						<label class="field-label" for="replacer-type">Replacer Type</label>
+						<select id="replacer-type" bind:value={formType}>
+							<option value="WEIGHTED">Weighted (default + chances)</option>
+							<option value="SIMPLE">Simple (equal-chance pool)</option>
+						</select>
+					</div>
+
+					<div class="control-group">
+						<label class="field-label" for="replacer-vanilla">Vanilla Tree to Replace</label>
+						<select id="replacer-vanilla" bind:value={formVanillaTreeId} disabled={!!editingId}>
+							<option value="">Select a vanilla tree...</option>
+							{#each vanillaTrees as id (id)}
+								<option value={id}>{displayName(id)} ({id})</option>
+							{/each}
+						</select>
+						{#if editingId}
+							<p class="field-hint">The vanilla tree can't be changed on an existing replacer.</p>
+						{/if}
+					</div>
+
+					<hr class="divider" />
+
+					{#if formType === 'WEIGHTED'}
+						<div class="control-group">
+							<label class="field-label" for="default-tree">Default Tree</label>
+							<p class="field-hint">The fallback, used whenever no alternative wins its roll.</p>
+							<select id="default-tree" bind:value={formDefaultTree}>
+								<option value="">Select default tree...</option>
+								{#each customTrees as tree (tree)}
+									<option value={`tree_engine:${tree}`}>{tree}</option>
+								{/each}
+							</select>
+						</div>
+
+						<div class="control-group">
+							<div class="group-head">
+								<span class="field-label" id="alternatives-label">Weighted Alternatives</span>
+								{#if formAlternatives.length > 0}
+									<span class="count-badge" class:over={chanceTotal > 1}>{(chanceTotal * 100).toFixed(0)}% of 100%</span>
+								{/if}
+							</div>
+							<p class="field-hint">Each alternative has its own probability of replacing the default (0.0-1.0).</p>
+							<div class="entry-list" aria-labelledby="alternatives-label">
+								{#if customTrees.length === 0}
+									<p class="field-hint pad">No custom trees available. Create some trees first.</p>
+								{:else if formAlternatives.length === 0}
+									<p class="field-hint pad">No alternatives - the default tree is always used.</p>
+								{:else}
+									{#each formAlternatives as alt, i}
+										<div class="entry-row">
+											<select bind:value={alt.feature}>
+												<option value="">Select tree...</option>
+												{#each customTrees as tree (tree)}
+													<option value={`tree_engine:${tree}`}>{tree}</option>
+												{/each}
+											</select>
+											<input class="chance" type="number" min="0" max="1" step="0.01" bind:value={alt.chance} />
+											<button class="icon-btn danger sm" aria-label="Remove alternative" onclick={() => removeAlternative(i)}>
+												<Icon name="close" size={13} />
+											</button>
+										</div>
+									{/each}
+								{/if}
+							</div>
+							<button class="btn secondary full" onclick={addAlternative}>
+								<Icon name="plus" size={13} />Add Alternative
+							</button>
+						</div>
+					{:else}
+						<div class="control-group">
+							<span class="field-label" id="pool-label">Tree Pool</span>
+							<p class="field-hint">Every tree in the pool has an equal chance of being picked.</p>
+							<div class="entry-list" aria-labelledby="pool-label">
+								{#if formPool.length === 0}
+									<p class="field-hint pad">The pool is empty. Add at least one tree.</p>
+								{:else}
+									{#each formPool as _, i}
+										<div class="entry-row">
+											<select bind:value={formPool[i]}>
+												<option value="">Select tree...</option>
+												{#each customTrees as tree (tree)}
+													<option value={`tree_engine:${tree}`}>{tree}</option>
+												{/each}
+											</select>
+											<button class="icon-btn danger sm" aria-label="Remove tree" onclick={() => removePoolEntry(i)}>
+												<Icon name="close" size={13} />
+											</button>
+										</div>
+									{/each}
+								{/if}
+							</div>
+							<button class="btn secondary full" onclick={addPoolEntry}>
+								<Icon name="plus" size={13} />Add Tree to Pool
+							</button>
+						</div>
+					{/if}
+
+					<div class="form-actions">
+						<button class="btn secondary" onclick={() => (view = 'list')}>Cancel</button>
+						<button class="btn" onclick={save}><Icon name="save" size={14} />Save Replacer</button>
+					</div>
 				</div>
 			{/if}
-
-			<div class="row">
-				<button class="btn" onclick={save}>Save Replacer</button>
-				<button class="btn secondary" onclick={() => (view = 'list')}>Cancel</button>
-			</div>
-		{/if}
+		</div>
 	</div>
 </div>
 
 <style>
 	.replacers-panel {
+		flex: 1;
 		width: 100%;
 		display: flex;
 		flex-direction: column;
-		background: var(--panel);
+		background: var(--bg);
+		min-width: 0;
 	}
-	.settings-header {
+
+	.panel-head {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 12px 15px;
-		border-bottom: 1px solid var(--panel-border);
+		padding: 0 14px;
+		height: 46px;
+		flex-shrink: 0;
+		border-bottom: 1px solid var(--line);
+		background: var(--panel);
 	}
-	.settings-header h2 {
-		margin: 0;
-		font-size: 15px;
+
+	.head-titles {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		flex: 1;
+		min-width: 0;
 	}
-	.back-btn {
-		background: none;
-		border: none;
-		color: var(--text-dim);
-		cursor: pointer;
-		font-size: 13px;
+
+	.head-titles h2 {
+		font-size: 13.5px;
+		font-weight: 650;
 	}
+
+	.head-sub {
+		font-size: 11px;
+		color: var(--text-faint);
+	}
+
 	.status-banner {
-		background: rgba(78, 201, 176, 0.15);
-		color: var(--accent);
-		padding: 8px 15px;
-		font-size: 13px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		background: var(--accent-wash);
+		border-bottom: 1px solid var(--accent-line);
+		color: var(--accent-hi);
+		padding: 9px 16px;
+		font-size: 12px;
+		flex-shrink: 0;
 	}
+
 	.scroll-content {
 		flex: 1;
 		overflow-y: auto;
-		padding: 15px;
+		padding: 20px 16px 32px;
+	}
+
+	.content-width {
+		max-width: 760px;
+		margin: 0 auto;
+	}
+
+	.empty-state.tall {
+		padding: 64px 24px;
+	}
+
+	/* --- List --- */
+
+	.replacer-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+		gap: 10px;
+	}
+
+	.replacer-item {
+		background: var(--panel);
+		border: 1px solid var(--line);
+		border-radius: var(--r-md);
+		padding: 13px 14px;
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
+		transition: border-color var(--fast);
 	}
-	.btn.full {
-		width: 100%;
+
+	.replacer-item:hover {
+		border-color: var(--line-strong);
 	}
-	.empty {
-		padding: 20px;
-		text-align: center;
-		color: var(--text-dim);
-		font-size: 13px;
-	}
-	.replacer-item {
-		background: var(--bg);
-		border: 1px solid var(--panel-border);
-		border-radius: 6px;
-		padding: 12px;
-	}
-	.replacer-item h4 {
-		margin: 0 0 4px;
-	}
-	.dim {
-		margin: 0;
-		color: var(--text-dim);
-		font-size: 12px;
-	}
-	.details {
-		margin: 6px 0 0;
-		font-size: 12px;
-		color: var(--text-dim);
-	}
-	.row {
+
+	.replacer-top {
 		display: flex;
-		gap: 8px;
-		margin: 8px 0;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 10px;
 	}
-	.control-group {
+
+	.replacer-id h4 {
+		font-size: 13px;
+		font-weight: 650;
+	}
+
+	.dim {
+		color: var(--text-faint);
+		font-size: 10.5px;
+	}
+
+	.type-chip {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		padding: 3px 8px;
+		border-radius: var(--r-full);
+		background: var(--accent-wash);
+		border: 1px solid var(--accent-line);
+		color: var(--accent-hi);
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.type-chip.simple {
+		background: rgba(152, 165, 151, 0.08);
+		border-color: var(--line-strong);
+		color: var(--text-dim);
+	}
+
+	.replacer-body {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
-		margin-bottom: 8px;
+		border-top: 1px solid var(--line);
+		padding-top: 10px;
 	}
-	.control-group label {
-		font-size: 12px;
+
+	.kv {
+		display: flex;
+		gap: 10px;
+		font-size: 11.5px;
+		align-items: baseline;
+	}
+
+	.kv .k {
+		width: 84px;
+		flex-shrink: 0;
+		color: var(--text-faint);
+		font-size: 10.5px;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+	}
+
+	.kv .v {
 		color: var(--text-dim);
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		min-width: 0;
+		word-break: break-word;
 	}
-	select,
-	input[type='number'] {
-		background: var(--bg);
-		border: 1px solid var(--panel-border);
-		color: var(--text);
-		border-radius: 6px;
-		padding: 8px 10px;
-		font-size: 13px;
-	}
-	.hint {
+
+	.alt-chip {
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--r-xs);
+		padding: 1px 6px;
 		font-size: 11px;
-		color: var(--text-dim);
-		margin: 0;
 	}
+
+	.alt-chip b {
+		color: var(--accent);
+		font-weight: 600;
+		margin-left: 3px;
+	}
+
+	.replacer-actions {
+		display: flex;
+		gap: 6px;
+		justify-content: flex-end;
+	}
+
+	/* --- Form --- */
+
+	.form-card {
+		background: var(--panel);
+		border: 1px solid var(--line);
+		border-radius: var(--r-lg);
+		padding: 20px;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		box-shadow: var(--shadow-md);
+	}
+
+	.control-group {
+		display: flex;
+		flex-direction: column;
+		gap: 7px;
+	}
+
+	.group-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+	}
+
+	.count-badge.over {
+		color: var(--danger);
+		border-color: rgba(226, 102, 74, 0.4);
+		background: var(--danger-wash);
+	}
+
 	.entry-list {
-		max-height: 200px;
+		max-height: 240px;
 		overflow-y: auto;
-		border: 1px solid var(--panel-border);
-		border-radius: 6px;
-		background: var(--bg);
+		border: 1px solid var(--line);
+		border-radius: var(--r-md);
+		background: var(--bg-sunken);
 		padding: 8px;
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
 	}
+
+	.field-hint.pad {
+		padding: 12px 4px;
+		text-align: center;
+	}
+
 	.entry-row {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 	}
+
 	.entry-row select {
 		flex: 1;
+		min-width: 0;
 	}
-	.entry-row input[type='number'] {
-		width: 60px;
+
+	.entry-row .chance {
+		width: 74px;
+		flex-shrink: 0;
+		font-family: var(--font-mono);
+		text-align: center;
 	}
-	.remove-btn {
-		background: var(--panel);
-		border: 1px solid var(--panel-border);
-		color: var(--text-dim);
-		border-radius: 4px;
-		cursor: pointer;
-		padding: 6px 8px;
+
+	.entry-row :global(.icon-btn.sm) {
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+	}
+
+	.form-actions {
+		display: flex;
+		gap: 8px;
+		justify-content: flex-end;
+		border-top: 1px solid var(--line);
+		padding-top: 16px;
 	}
 </style>

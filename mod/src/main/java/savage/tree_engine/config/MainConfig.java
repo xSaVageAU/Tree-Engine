@@ -20,6 +20,11 @@ public class MainConfig {
 
     public int tree_generation_threads = 4;
 
+    // Absolute path to the desktop launcher's currently open project folder.
+    // Empty means no project is open (or the mod is running standalone,
+    // outside the launcher) - see ProjectPaths for the fallback behavior.
+    public String active_project_dir = "";
+
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private static final Path CONFIG_DIR = Path.of("config", "tree_engine");
     private static final Path CONFIG_FILE = CONFIG_DIR.resolve("config.json");
@@ -77,7 +82,11 @@ public class MainConfig {
 
             sb.append("\n  // Tree Generation Settings\n");
             sb.append("  // Number of worker threads for tree preview generation (1-16)\n");
-            sb.append("  \"tree_generation_threads\": ").append(instance.tree_generation_threads).append("\n");
+            sb.append("  \"tree_generation_threads\": ").append(instance.tree_generation_threads).append(",\n");
+
+            sb.append("\n  // Project Settings\n");
+            sb.append("  // Absolute path to the desktop launcher's open project folder (empty = none open / standalone use)\n");
+            sb.append("  \"active_project_dir\": ").append(GSON.toJson(instance.active_project_dir)).append("\n");
 
             sb.append("}");
 

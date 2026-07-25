@@ -19,6 +19,13 @@ type State struct {
 	Port             int    `json:"port"`     // the mod's own HTTP API port, not Minecraft's
 	GamePort         int    `json:"gamePort"` // Minecraft's server-port (server.properties) - randomized so it never collides with a real Minecraft server on the default 25565
 	AuthToken        string `json:"authToken"`
+
+	// ActiveProjectPath is the absolute path to the currently open project
+	// folder (the datapack the mod reads/writes directly - see
+	// ProjectPaths.java on the mod side). Empty means no project is open;
+	// StartServer refuses to boot the server in that state, the same way it
+	// already refuses when SetupComplete is false.
+	ActiveProjectPath string `json:"activeProjectPath"`
 }
 
 // LoadState reads launcher-state.json. A missing file is not an error - it

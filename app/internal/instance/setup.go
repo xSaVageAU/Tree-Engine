@@ -87,7 +87,9 @@ func Run(ctx context.Context, l Layout, eulaAccepted bool, progress ProgressFunc
 	if err != nil {
 		return nil, err
 	}
-	if err := WriteModConfig(l, port, authToken); err != nil {
+	// No project is open yet at first-run setup time - ProjectPaths.java
+	// falls back to its legacy default until one is opened.
+	if err := WriteModConfig(l, port, authToken, ""); err != nil {
 		return nil, fmt.Errorf("failed to write mod config: %w", err)
 	}
 

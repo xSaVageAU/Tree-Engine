@@ -11,7 +11,6 @@ import savage.tree_engine.TreeEngine;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -19,13 +18,12 @@ import java.util.stream.Stream;
 /**
  * Manages tree replacer configurations.
  * A tree replacer allows replacing vanilla tree models with custom tree pools.
- * 
+ *
  * Refactored to use the existence of datapack files as the source of truth.
  */
 public class TreeReplacerManager {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path DATAPACK_ROOT = Paths.get("config", "tree_engine", "datapacks", "tree_engine_trees");
-    
+
     public static class TreeReplacer {
         public String id;
         public String vanilla_tree_id;
@@ -78,8 +76,8 @@ public class TreeReplacerManager {
      */
     private static void ensurePlacedFeaturesExist() {
         try {
-            Path configuredFeatureDir = DATAPACK_ROOT.resolve("data").resolve("tree_engine").resolve("worldgen").resolve("configured_feature");
-            Path placedFeatureDir = DATAPACK_ROOT.resolve("data").resolve("tree_engine").resolve("worldgen").resolve("placed_feature");
+            Path configuredFeatureDir = ProjectPaths.getConfiguredFeatureDir();
+            Path placedFeatureDir = ProjectPaths.getPlacedFeatureDir();
             
             if (!Files.exists(configuredFeatureDir)) return;
             Files.createDirectories(placedFeatureDir);
@@ -118,7 +116,7 @@ public class TreeReplacerManager {
         List<TreeReplacer> replacers = new ArrayList<>();
         
         // Scan data/minecraft/worldgen/configured_feature/
-        Path minecraftFeaturesDir = DATAPACK_ROOT.resolve("data").resolve("minecraft").resolve("worldgen").resolve("configured_feature");
+        Path minecraftFeaturesDir = ProjectPaths.getConfiguredFeatureDir("minecraft");
         
         if (!Files.exists(minecraftFeaturesDir)) {
             return replacers;
@@ -228,7 +226,7 @@ public class TreeReplacerManager {
             }
         }
         
-        Path file = DATAPACK_ROOT.resolve("data").resolve("minecraft").resolve("worldgen").resolve("configured_feature").resolve(pathStr + ".json");
+        Path file = ProjectPaths.getConfiguredFeatureDir("minecraft").resolve(pathStr + ".json");
         
         if (Files.exists(file)) {
             try {
@@ -275,10 +273,7 @@ public class TreeReplacerManager {
         String path = parts[1];
 
         // Create the output path: data/{namespace}/worldgen/configured_feature/{path}.json
-        Path outputDir = DATAPACK_ROOT.resolve("data")
-            .resolve(namespace)
-            .resolve("worldgen")
-            .resolve("configured_feature");
+        Path outputDir = ProjectPaths.getConfiguredFeatureDir(namespace);
         Files.createDirectories(outputDir);
 
         Path outputFile = outputDir.resolve(path + ".json");
@@ -348,11 +343,7 @@ public class TreeReplacerManager {
         String namespace = parts[0];
         String path = parts[1];
         
-        Path outputFile = DATAPACK_ROOT.resolve("data")
-            .resolve(namespace)
-            .resolve("worldgen")
-            .resolve("configured_feature")
-            .resolve(path + ".json");
+        Path outputFile = ProjectPaths.getConfiguredFeatureDir(namespace).resolve(path + ".json");
         
         if (Files.exists(outputFile)) {
             Files.delete(outputFile);

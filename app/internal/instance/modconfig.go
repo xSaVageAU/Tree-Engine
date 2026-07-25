@@ -22,12 +22,15 @@ type treeEngineConfig struct {
 	RegenerateTokenOnBoot bool   `json:"regenerate_token_on_restart"`
 	HotReloadEnabled      bool   `json:"hot_reload_enabled"`
 	TreeGenerationThreads int    `json:"tree_generation_threads"`
+	ActiveProjectDir      string `json:"active_project_dir"`
 }
 
 // WriteModConfig pre-seeds config/tree_engine/config.json before the server
 // is ever launched, so the mod auto-starts its web editor and reuses the
 // launcher-generated token instead of requiring a manual command + copy-paste.
-func WriteModConfig(l Layout, port int, authToken string) error {
+// activeProjectDir is the currently open project folder (see
+// ProjectPaths.java on the mod side) - empty means none open.
+func WriteModConfig(l Layout, port int, authToken string, activeProjectDir string) error {
 	cfg := treeEngineConfig{
 		ServerPort:            port,
 		AutoStartWebOnBoot:    true,
@@ -36,6 +39,7 @@ func WriteModConfig(l Layout, port int, authToken string) error {
 		RegenerateTokenOnBoot: false, // keep the token stable across restarts
 		HotReloadEnabled:      true,
 		TreeGenerationThreads: 4,
+		ActiveProjectDir:      activeProjectDir,
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

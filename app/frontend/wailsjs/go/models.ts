@@ -2,6 +2,7 @@ export namespace instance {
 	
 	export class Settings {
 	    autoStartOnLaunch: boolean;
+	    recentProjects: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -10,6 +11,7 @@ export namespace instance {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.autoStartOnLaunch = source["autoStartOnLaunch"];
+	        this.recentProjects = source["recentProjects"];
 	    }
 	}
 
@@ -33,6 +35,20 @@ export namespace main {
 	        this.baseURL = source["baseURL"];
 	        this.ready = source["ready"];
 	        this.error = source["error"];
+	    }
+	}
+	export class ProjectInfo {
+	    path: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.name = source["name"];
 	    }
 	}
 	export class StatusPayload {

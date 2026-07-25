@@ -3,7 +3,13 @@
 import {main} from '../models';
 import {instance} from '../models';
 
+export function CloseProject():Promise<void>;
+
 export function EnsureAssets():Promise<main.AssetsPayload>;
+
+export function GetCurrentProject():Promise<main.ProjectInfo>;
+
+export function GetRecentProjects():Promise<Array<main.ProjectInfo>>;
 
 export function GetSettings():Promise<instance.Settings>;
 
@@ -14,6 +20,10 @@ export function ImportDatapackFolder():Promise<string>;
 export function ImportDatapackZip():Promise<string>;
 
 export function OpenInstanceFolder():Promise<void>;
+
+export function OpenProjectFolder():Promise<main.ProjectInfo>;
+
+export function OpenRecentProject(arg1:string):Promise<main.ProjectInfo>;
 
 export function RunSetup(arg1:boolean):Promise<void>;
 
