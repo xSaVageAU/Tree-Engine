@@ -43,7 +43,7 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response | nul
 // path) returns 200 OK with an HTML body instead of a real 404 - fetchOk
 // alone doesn't catch that. Guard on Content-Type so a routing miss surfaces
 // as a normal "missing" result instead of a JSON.parse crash.
-async function fetchJson(url: string): Promise<any | null> {
+async function fetchJsonUncached(url: string): Promise<any | null> {
 	const res = await fetchWithRetry(url)
 	if (!res) return null
 	const contentType = res.headers.get('content-type') ?? ''
@@ -52,6 +52,61 @@ async function fetchJson(url: string): Promise<any | null> {
 		return null
 	}
 	return res.json()
+}
+
+// Fetched assets are cached by URL for the lifetime of the window.
+//
+// These are immutable files for a fixed Minecraft version, served from a local
+// cache, and the same handful is needed on every render - so refetching them
+// each time is pure waste. It is the *promise* that is cached, not the result,
+// which also collapses concurrent requests for the same URL into one.
+//
+// This matters far more than it sounds. A single tree needs a few blockstates;
+// a chunk needs dozens, fanning out to hundreds of models and textures. Without
+// this, every regenerate paid for all of them again.
+// Runs fn over items with at most `limit` in flight.
+//
+// Not Promise.all: these loops used to be strictly sequential because a burst
+// of concurrent requests could make the asset server drop some, leaving a
+// block silently un-textured. A bounded pool keeps that protection while
+// still overlapping the latency, which is the whole cost here.
+async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+	let next = 0
+	const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+		while (next < items.length) {
+			await fn(items[next++])
+		}
+	})
+	await Promise.all(workers)
+}
+
+const MAX_IN_FLIGHT = 8
+
+const jsonCache = new Map<string, Promise<any | null>>()
+const textureCache = new Map<string, Promise<Blob | null>>()
+
+function fetchJson(url: string): Promise<any | null> {
+	let pending = jsonCache.get(url)
+	if (!pending) {
+		pending = fetchJsonUncached(url)
+		jsonCache.set(url, pending)
+	}
+	return pending
+}
+
+function fetchTexture(url: string): Promise<Blob | null> {
+	let pending = textureCache.get(url)
+	if (!pending) {
+		pending = (async () => {
+			const res = await fetchWithRetry(url)
+			const contentType = res?.headers.get('content-type') ?? ''
+			if (res && contentType.includes('image')) return res.blob()
+			if (res) console.warn(`[renderer] expected image from ${url}, got content-type "${contentType}"`)
+			return null
+		})()
+		textureCache.set(url, pending)
+	}
+	return pending
 }
 
 // deepslate 0.26.0's TextureAtlas.fromBlobs mis-sizes the atlas for certain
@@ -203,22 +258,27 @@ export class AssetResources implements Resources {
 
 		// Load each distinct block's definition, then resolve the model variants
 		// its actual properties select.
+		const distinctNames = [...new Set(specs.map((spec) => spec.name))]
+		await mapLimit(distinctNames, MAX_IN_FLIGHT, async (name) => {
+			const nameId = Identifier.parse(name)
+			const data = await fetchJson(`${base}blockstates/${nameId.path}.json`)
+			if (data) definitions.set(nameId.toString(), BlockDefinition.fromJson(data))
+		})
+
+		// Model variants can only be resolved once the definitions exist, so
+		// this is a second pass rather than part of the one above.
 		const seenModels = new Set<string>()
+		const wantedModels: string[] = []
 		for (const spec of specs) {
-			const nameId = Identifier.parse(spec.name)
-			const defKey = nameId.toString()
-			if (!definitions.has(defKey)) {
-				const data = await fetchJson(`${base}blockstates/${nameId.path}.json`)
-				if (data) definitions.set(defKey, BlockDefinition.fromJson(data))
-			}
-			const def = definitions.get(defKey)
+			const def = definitions.get(Identifier.parse(spec.name).toString())
 			if (!def) continue
 			for (const variant of def.getModelVariants(spec.properties)) {
 				if (seenModels.has(variant.model)) continue
 				seenModels.add(variant.model)
-				await ensureModel(Identifier.parse(variant.model))
+				wantedModels.push(variant.model)
 			}
 		}
+		await mapLimit(wantedModels, MAX_IN_FLIGHT, (model) => ensureModel(Identifier.parse(model)))
 
 		// Build model objects, then flatten each against the full set so parent
 		// elements/textures are inlined.
@@ -232,22 +292,18 @@ export class AssetResources implements Resources {
 			model.flatten(provider)
 		}
 
-		// Fetch every referenced texture and pack them into an atlas. Sequential
-		// (not Promise.all) so the dev asset server isn't hit by a burst that can
-		// drop requests and leave a block silently un-textured.
+		// Fetch every referenced texture and pack them into an atlas.
 		const blobs: Record<string, Blob> = {}
 		const failedTextures: string[] = []
-		for (const idStr of textureIds) {
+		await mapLimit([...textureIds], MAX_IN_FLIGHT, async (idStr) => {
 			const id = Identifier.parse(idStr)
-			const res = await fetchWithRetry(`${base}textures/${id.path}.png`)
-			const contentType = res?.headers.get('content-type') ?? ''
-			if (res && contentType.includes('image')) {
-				blobs[idStr] = await res.blob()
+			const blob = await fetchTexture(`${base}textures/${id.path}.png`)
+			if (blob) {
+				blobs[idStr] = blob
 			} else {
-				if (res) console.warn(`[renderer] expected image from ${id.path}.png, got content-type "${contentType}"`)
 				failedTextures.push(idStr)
 			}
-		}
+		})
 
 		// Diagnostics: surface exactly what resolved vs. what didn't, including the
 		// concrete texture identifier each model's faces actually resolve to at

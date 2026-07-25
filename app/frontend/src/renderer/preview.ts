@@ -16,6 +16,22 @@ export interface PreviewOptions {
 	biome?: string
 }
 
+// Timing of the last setBlocks call, for the status readout. Kept module-level
+// rather than returned so callers that do not care are unaffected.
+export interface RenderTimings {
+	buildMs: number
+	assetsMs: number
+	meshMs: number
+}
+
+let lastRenderTimings: RenderTimings | null = null
+
+export function takeRenderTimings(): RenderTimings | null {
+	const timings = lastRenderTimings
+	lastRenderTimings = null
+	return timings
+}
+
 export class TreePreview {
 	private readonly gl: WebGLRenderingContext
 	private renderer: StructureRenderer
@@ -75,8 +91,11 @@ export class TreePreview {
 	// Swaps in a newly generated structure. Reloads resources because a different
 	// tree may reference blocks/textures the current atlas doesn't contain.
 	async setBlocks(blocks: ApiBlock[], baseURL: string, biome = DEFAULT_BIOME): Promise<void> {
+		const t0 = performance.now()
 		const built = buildStructure(blocks)
+		const t1 = performance.now()
 		this.resources = await AssetResources.load(baseURL, built.specs)
+		const t2 = performance.now()
 		this.structure = built
 		this.center = built.center
 		this.currentBiome = biome
@@ -85,6 +104,12 @@ export class TreePreview {
 		this.renderer = new StructureRenderer(this.gl, built.structure, this.resources)
 		this.fixAtlasFiltering()
 		this.requestRender()
+
+		lastRenderTimings = {
+			buildMs: Math.round(t1 - t0),
+			assetsMs: Math.round(t2 - t1),
+			meshMs: Math.round(performance.now() - t2),
+		}
 	}
 
 	// Re-tints and rebuilds the mesh for the current structure using an already-

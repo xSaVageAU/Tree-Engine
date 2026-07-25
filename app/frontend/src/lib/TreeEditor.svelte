@@ -35,7 +35,7 @@
 	} from '../renderer/project-client'
 	import { previewChunk } from '../renderer/mod-client'
 	import { BIOME_COLORS, DEFAULT_BIOME } from '../renderer/biome-colors'
-	import { TreePreview } from '../renderer/preview'
+	import { takeRenderTimings, TreePreview } from '../renderer/preview'
 	import type { ApiBlock } from '../renderer/structure'
 	import BenchmarkModal from './BenchmarkModal.svelte'
 	import CommandPalette, { type Command } from './CommandPalette.svelte'
@@ -551,6 +551,7 @@
 
 		try {
 			const sessionId = await ensureSession(conn)
+			const tRequest = performance.now()
 			const result = await previewChunk(conn, {
 				sessionId: sessionId ?? undefined,
 				chunkX: worldChunkX,
@@ -558,6 +559,7 @@
 				radius: worldRadius,
 				seed: previewSeed,
 			})
+			const serverMs = Math.round(performance.now() - tRequest)
 			if (seq !== genSeq) return
 
 			const blocks = result.blocks.filter((b) => b.name !== 'minecraft:air')
@@ -571,10 +573,18 @@
 				error: false,
 				details: '',
 			}
-			worldInfo = result.datapackApplied
-				? `y ${result.minY}..${result.maxY} · ${result.decoratedCount} placed`
-				: `y ${result.minY}..${result.maxY} · vanilla only (nothing saved yet)`
+			const source = result.datapackApplied ? `${result.decoratedCount} placed` : 'vanilla only'
 			if (activeKey === docKey) await renderBlocks(blocks)
+
+			// Attribute the time rather than reporting one opaque total: server
+			// generation, asset fetching and meshing fail slow in very
+			// different ways, and knowing which one is the problem is the
+			// whole point of showing this.
+			const render = takeRenderTimings()
+			const phases = render
+				? `server ${serverMs}ms · build ${render.buildMs}ms · assets ${render.assetsMs}ms · mesh ${render.meshMs}ms`
+				: `server ${serverMs}ms`
+			worldInfo = `y ${result.minY}..${result.maxY} · ${source} · ${phases}`
 		} catch (e) {
 			if (seq !== genSeq) return
 			const err = e as BackendError
