@@ -1,6 +1,6 @@
 // Package modrinth fetches the Fabric API mod jar from Modrinth. Fabric API
 // is a modImplementation dependency of the Tree Engine mod (see
-// mod/build.gradle) - it is NOT bundled into tree-engine.jar, so it must be
+// backend/gradle.properties) - it is NOT bundled into tree-engine.jar, so it must be
 // downloaded and placed in mods/ alongside it at runtime.
 package modrinth
 

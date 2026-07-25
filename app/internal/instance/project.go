@@ -59,8 +59,8 @@ const projectPackMcmeta = `{
 
 // ScaffoldProjectIfNeeded initializes path as a Tree Engine datapack if it
 // isn't already one - creating pack.mcmeta plus the configured_feature/
-// placed_feature folders the mod's TreeApiHandler writes into. Safe to call
-// on an already-valid project folder (a no-op past the directory checks).
+// placed_feature folders treefiles.go writes into. Safe to call on an
+// already-valid project folder (a no-op past the directory checks).
 func ScaffoldProjectIfNeeded(path string) error {
 	configuredFeatureDir := filepath.Join(path, "data", "tree_engine", "worldgen", "configured_feature")
 	placedFeatureDir := filepath.Join(path, "data", "tree_engine", "worldgen", "placed_feature")

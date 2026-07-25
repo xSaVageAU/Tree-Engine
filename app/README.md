@@ -15,6 +15,10 @@ The backend jar is embedded at build time. Re-run
 `pwsh ../scripts/sync-backend-jar.ps1` after changing anything in `backend/`,
 or you will be running the app against a stale jar.
 
+`internal/assets/tree-engine.jar` is committed on purpose. It is `go:embed`-ed,
+so `go build` fails without it - keeping it in the repo means a fresh clone
+builds with no extra steps. It only changes when the backend does.
+
 ## Layout
 
 | Path | What it does |

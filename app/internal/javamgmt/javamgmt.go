@@ -18,9 +18,12 @@ import (
 	"strings"
 )
 
-// MinJavaMajor is the minimum Java major version the mod requires
-// (mod/build.gradle pins sourceCompatibility/targetCompatibility to 21).
-const MinJavaMajor = 21
+// MinJavaMajor is the minimum Java major version the backend requires.
+// Minecraft 26.2 targets Java 25, backend/build.gradle compiles with
+// release 25, and backend/src/main/resources/fabric.mod.json declares
+// "java": ">=25" - an older JRE loads the server but not the mod, so this
+// must not drift below that.
+const MinJavaMajor = 25
 
 const adoptiumBinaryURL = "https://api.adoptium.net/v3/binary/latest/%d/ga/windows/x64/jre/hotspot/normal/eclipse"
 
@@ -149,7 +152,7 @@ func DownloadJRE(ctx context.Context, destDir string, onProgress func(downloaded
 }
 
 // extractJRE unpacks the Adoptium zip (which contains a single top-level
-// "jdk-21.x.y+z-jre" directory) into destDir and returns the path to
+// "jdk-<version>-jre" directory) into destDir and returns the path to
 // bin\java.exe inside it.
 func extractJRE(zipPath, destDir string) (string, error) {
 	r, err := zip.OpenReader(zipPath)
