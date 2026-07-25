@@ -100,24 +100,67 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 	 * was placed on it. This is what a renderer showing "the chunk as it would
 	 * appear in game" needs.
 	 */
-	public List<BlockDto> fullChunk(TerrainSnapshot snapshot, int fromY, int toY) {
+	public List<BlockDto> fullChunk(TerrainSnapshot snapshot, int crustDepth, int toY, int hardFloor) {
 		List<BlockDto> out = new ArrayList<>();
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		int baseX = snapshot.pos().getMinBlockX();
 		int baseZ = snapshot.pos().getMinBlockZ();
-		int lo = Math.max(fromY, snapshot.minY());
-		int hi = Math.min(toY, snapshot.minY() + snapshot.height() - 1);
-		for (int y = lo; y <= hi; y++) {
-			for (int z = 0; z < 16; z++) {
-				for (int x = 0; x < 16; x++) {
-					cursor.set(baseX + x, y, baseZ + z);
+		int floor = Math.max(snapshot.minY(), hardFloor);
+		int ceiling = Math.min(toY, snapshot.minY() + snapshot.height() - 1);
+
+		for (int z = 0; z < 16; z++) {
+			for (int x = 0; x < 16; x++) {
+				int worldX = baseX + x;
+				int worldZ = baseZ + z;
+
+				// Each column gets its own floor, a fixed depth below its own
+				// surface, rather than every column being cut at one global
+				// height. A single plane looks fine on flat ground and badly
+				// wrong on a slope: it saws through hillsides and leaves them
+				// floating over a void. Following the terrain gives an even
+				// crust and, incidentally, far fewer blocks - a deep column no
+				// longer has to be filled in solid just to reach the surface.
+				int surface = getHeight(Heightmap.Types.MOTION_BLOCKING, worldX, worldZ) - 1;
+				int lo = Math.max(floor, surface - crustDepth);
+
+				for (int y = lo; y <= ceiling; y++) {
+					cursor.set(worldX, y, worldZ);
 					BlockState state = getBlockState(cursor);
 					if (state.isAir()) {
 						continue;
 					}
-					out.add(BlockDto.of(cursor.getX(), cursor.getY(), cursor.getZ(), state));
+					out.add(BlockDto.of(worldX, y, worldZ, state));
 				}
 			}
+		}
+		return out;
+	}
+
+	/**
+	 * Blocks decoration placed outside the given chunks.
+	 *
+	 * A tree near a chunk edge legitimately writes part of its canopy into the
+	 * neighbour. Those blocks belong to the preview - dropping them slices the
+	 * tree cleanly in half along the chunk border.
+	 */
+	public List<BlockDto> spillOutside(java.util.Set<Long> chunks, int fromY, int toY) {
+		List<BlockDto> out = new ArrayList<>();
+		for (Map.Entry<BlockPos, BlockState> entry : placed.entrySet()) {
+			BlockPos pos = entry.getKey();
+			if (entry.getValue().isAir()) {
+				continue;
+			}
+			// Spill obeys the same window as everything else. Underground
+			// decoration - sculk in a deep dark, say - also crosses chunk
+			// borders, and without this it comes back from a hundred blocks
+			// down and stretches the preview over empty space.
+			if (pos.getY() < fromY || pos.getY() > toY) {
+				continue;
+			}
+			if (chunks.contains(ChunkPos.pack(pos.getX() >> 4, pos.getZ() >> 4))) {
+				continue;
+			}
+			out.add(BlockDto.of(pos.getX(), pos.getY(), pos.getZ(), entry.getValue()));
 		}
 		return out;
 	}

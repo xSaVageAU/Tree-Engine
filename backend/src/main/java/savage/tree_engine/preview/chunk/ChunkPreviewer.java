@@ -46,26 +46,26 @@ public final class ChunkPreviewer {
 	}
 
 	/**
-	 * How much ground to include beneath the lowest surface point. Enough to
-	 * read the terrain as solid without dragging the whole stone column along.
+	 * How thick the terrain crust is: how far below its own surface each
+	 * column is carried down. Enough to read as solid ground without dragging
+	 * the whole stone column along.
 	 */
-	private static final int FLOOR_DEPTH = 4;
+	private static final int CRUST_DEPTH = 5;
 
 	/** Headroom above the tallest thing, so nothing is clipped at the top. */
 	private static final int HEADROOM = 2;
 
 	/**
-	 * Ceiling on how tall an auto-fitted window may be.
+	 * Hard floor on how far below the top of the preview anything is emitted.
 	 *
-	 * Across several chunks the terrain can span a valley and a hilltop, and
-	 * anchoring the window at the lowest surface then fills every high column
-	 * with solid rock the viewer cannot see into - measured at 74k blocks for a
-	 * 3x3 before this cap, against 3k for a single flat chunk. Anchoring at the
-	 * top instead keeps the surface and everything on it, and trades away the
-	 * bottom of deep valleys. The window actually used is reported back, so the
-	 * trade is visible rather than silent.
+	 * This is not the mechanism that bounds the block count - the per-column
+	 * crust does that. It exists for pathological columns: a shaft or cave
+	 * mouth whose "surface" is a hundred blocks down would otherwise stretch
+	 * the renderer's bounding box over mostly empty space. Set far enough
+	 * below normal terrain variation that it never cuts a hillside, which is
+	 * exactly what an earlier and much tighter cap did.
 	 */
-	private static final int MAX_WINDOW_HEIGHT = 48;
+	private static final int MAX_SPAN = 64;
 
 	public Result preview(
 		RegistryAccess registries, int centerX, int centerZ, int radius,
@@ -121,36 +121,60 @@ public final class ChunkPreviewer {
 		}
 
 		// A chunk spans hundreds of blocks vertically and is nearly all stone.
-		// Fitting the window to the surface is what makes this preview useful
-		// rather than a rock column: it keeps the ground and everything
-		// growing on it, and discards the rest before it hits the wire.
-		int fromY;
+		// What a preview wants is the surface and whatever grows on it, so
+		// each column is carried down a fixed depth from its own surface and
+		// no further - see fullChunk.
+		int crust;
 		int toY;
+		int hardFloor;
 		if (requestedMinY != null && requestedMaxY != null) {
-			fromY = Math.min(requestedMinY, requestedMaxY);
+			// An explicit window is taken literally: the caller asked for a
+			// slab, so give them a slab.
+			int lo = Math.min(requestedMinY, requestedMaxY);
 			toY = Math.max(requestedMinY, requestedMaxY);
+			crust = Math.max(0, toY - lo);
+			hardFloor = lo;
 		} else {
-			int lowestSurface = Integer.MAX_VALUE;
 			int highest = Integer.MIN_VALUE;
 			for (TerrainSnapshot snapshot : requested) {
-				lowestSurface = Math.min(lowestSurface, level.lowestSurface(snapshot));
 				highest = Math.max(highest, level.highestOccupied(snapshot));
 			}
 			toY = highest + HEADROOM;
-			fromY = Math.max(lowestSurface - FLOOR_DEPTH, toY - MAX_WINDOW_HEIGHT);
+			crust = CRUST_DEPTH;
+			hardFloor = toY - MAX_SPAN;
 		}
 
 		List<BlockDto> blocks;
 		if (fullChunk) {
 			blocks = new ArrayList<>();
 			for (TerrainSnapshot snapshot : requested) {
-				blocks.addAll(level.fullChunk(snapshot, fromY, toY));
+				blocks.addAll(level.fullChunk(snapshot, crust, toY, hardFloor));
 			}
+			// Decoration that reached past the requested chunks comes along,
+			// so a tree on a border is not sliced in half.
+			java.util.Set<Long> requestedKeys = new java.util.HashSet<>();
+			for (TerrainSnapshot snapshot : requested) {
+				requestedKeys.add(ChunkPos.pack(snapshot.pos().x(), snapshot.pos().z()));
+			}
+			blocks.addAll(level.spillOutside(requestedKeys, hardFloor, toY));
 		} else {
 			blocks = level.decorated();
 		}
 
-		return new Result(blocks, requested.size(), level.decorated().size(), fromY, toY);
+		// Report the window the output actually occupies rather than the one
+		// asked for - with a per-column floor there is no single lower plane.
+		int minY = Integer.MAX_VALUE;
+		int maxY = Integer.MIN_VALUE;
+		for (BlockDto block : blocks) {
+			minY = Math.min(minY, block.y());
+			maxY = Math.max(maxY, block.y());
+		}
+		if (blocks.isEmpty()) {
+			minY = 0;
+			maxY = 0;
+		}
+
+		return new Result(blocks, requested.size(), level.decorated().size(), minY, maxY);
 	}
 
 	/**

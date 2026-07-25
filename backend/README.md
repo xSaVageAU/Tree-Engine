@@ -100,17 +100,23 @@ a client can never present vanilla output as though it reflected the user's
 datapack.
 
 **The vertical window matters.** A chunk spans y −64→320 and is overwhelmingly
-underground stone; returning all of it is both slow and useless to look at. Left
-to itself the backend fits a window to the surface — a little ground below the
-lowest surface point, up past the tallest thing growing on it. For one chunk
-that is typically ~2–3k blocks instead of ~41k.
+underground stone; returning all of it is both slow and useless to look at.
 
-The auto window is also capped in height. Across several chunks the terrain can
-span a valley and a hilltop, and anchoring at the lowest surface fills every
-high column with rock nobody can see into (measured: 74k blocks for a 3×3,
-against 34k with the cap). The window is anchored at the top instead, trading
-away the bottom of deep valleys. Whatever window was used comes back in the
-response, so the trade is visible rather than silent.
+Left to itself the backend returns a *crust*: each column is carried down a
+fixed depth below **its own** surface. That matters on slopes. An earlier
+version cut every column at one global height to bound the block count, which
+looked fine on flat ground and sawed straight through hillsides everywhere
+else, leaving them floating over a void. Following the terrain also bounds the
+count better, because a deep column is never filled solid just to reach the
+surface — a 3×3 forest went from ~31k blocks to ~13k.
+
+Decoration that reaches past the requested chunks is included, so a tree on a
+chunk border is not sliced in half. A hard floor well below normal terrain
+variation keeps a lone shaft or cave mouth from stretching the preview over
+empty space; it sits far enough down never to cut a hillside.
+
+Giving `minY`/`maxY` explicitly overrides all of this and returns a plain slab.
+The `minY`/`maxY` in the response are the extent the output actually occupies.
 
 Terrain comes from the running world, so it depends on that world's seed and
 settings. The launcher configures a normal world; a superflat one would make
