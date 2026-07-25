@@ -170,6 +170,11 @@ export interface ChunkPreviewRequest {
 	seed?: number
 	// Only the blocks decoration added, rather than the whole chunk.
 	decoratedOnly?: boolean
+	// Vertical window. Omit both and the backend fits one to the surface,
+	// which is almost always what you want - a full column is overwhelmingly
+	// underground stone.
+	minY?: number
+	maxY?: number
 }
 
 export interface ChunkPreviewResult {
@@ -179,6 +184,9 @@ export interface ChunkPreviewResult {
 	decoratedCount: number
 	// False when no session was supplied, i.e. this is vanilla generation.
 	datapackApplied: boolean
+	// The vertical window actually used.
+	minY: number
+	maxY: number
 }
 
 // Real terrain from the running world, decorated with the session's features.

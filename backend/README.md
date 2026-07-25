@@ -92,11 +92,25 @@ features.
 | `radius` | 0 = one chunk, 1 = 3×3. Capped at 9 chunks total |
 | `seed` | Decoration seed |
 | `decoratedOnly` | Return only what decoration added, not the terrain under it |
+| `minY`, `maxY` | Explicit vertical window. Omit both for an auto fit |
 
-Returns `blocks`, `blockCount`, `chunkCount`, `decoratedCount`, and
-`datapackApplied` — the last being false when no session was supplied, so a
-client can never present vanilla output as though it reflected the user's
+Returns `blocks`, `blockCount`, `chunkCount`, `decoratedCount`, `minY`, `maxY`,
+and `datapackApplied` — the last being false when no session was supplied, so
+a client can never present vanilla output as though it reflected the user's
 datapack.
+
+**The vertical window matters.** A chunk spans y −64→320 and is overwhelmingly
+underground stone; returning all of it is both slow and useless to look at. Left
+to itself the backend fits a window to the surface — a little ground below the
+lowest surface point, up past the tallest thing growing on it. For one chunk
+that is typically ~2–3k blocks instead of ~41k.
+
+The auto window is also capped in height. Across several chunks the terrain can
+span a valley and a hilltop, and anchoring at the lowest surface fills every
+high column with rock nobody can see into (measured: 74k blocks for a 3×3,
+against 34k with the cap). The window is anchored at the top instead, trading
+away the bottom of deep valleys. Whatever window was used comes back in the
+response, so the trade is visible rather than silent.
 
 Terrain comes from the running world, so it depends on that world's seed and
 settings. The launcher configures a normal world; a superflat one would make

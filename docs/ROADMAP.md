@@ -14,7 +14,7 @@ rewrite. Expect rough edges in the seams until it has.
 |---|---|
 | Datapack compiled in memory, no disk | working |
 | Single-tree preview | working |
-| Natural chunk preview, datapack applied | working, no UI |
+| Natural chunk preview, datapack applied | working |
 | Registry browsing and feature import | working |
 | Tree + placement editing | working |
 | Tree replacers, as datapack shadowing | working |
@@ -23,10 +23,10 @@ rewrite. Expect rough edges in the seams until it has.
 
 ## Next
 
-**Chunk preview UI.** The API is done; nothing surfaces it. This needs a view
-mode switcher and renderer attention — a chunk is tens of thousands of blocks
-where a single tree is a few hundred, so it is not simply the same renderer
-pointed at more data.
+**Chunk preview performance.** The World Preview tab works, but a 3×3 area is
+~34k blocks against ~2k for one chunk, and the renderer meshes all of it on the
+main thread. One chunk is comfortable; the larger area is noticeably slower.
+Worth revisiting if the bigger view gets used in anger.
 
 **Direct overwrites.** Replacers already prove the shadowing mechanism: write a
 configured feature under another namespace and Minecraft loads yours instead.

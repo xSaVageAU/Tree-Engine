@@ -33,6 +33,7 @@
 		saveTree,
 		type Replacer,
 	} from '../renderer/project-client'
+	import { previewChunk } from '../renderer/mod-client'
 	import { BIOME_COLORS, DEFAULT_BIOME } from '../renderer/biome-colors'
 	import { TreePreview } from '../renderer/preview'
 	import type { ApiBlock } from '../renderer/structure'
@@ -46,6 +47,7 @@
 	let { conn }: { conn: ModConnection } = $props()
 
 	const REPLACERS_KEY = 'replacers'
+	const WORLD_KEY = 'world'
 
 	// The starting point for a new tree, taken from the game's own registry.
 	// Hardcoding it here is what broke "New Tree" on 26.2 - the literal still
@@ -60,7 +62,7 @@
 
 	interface Doc {
 		key: string
-		kind: 'tree' | 'replacers'
+		kind: 'tree' | 'replacers' | 'world'
 		/** Saved id on disk; null for a document that has never been saved. */
 		id: string | null
 		name: string
@@ -100,6 +102,13 @@
 	let benchmarkModalOpen = $state(false)
 	let paletteMode = $state<'commands' | 'files' | null>(null)
 
+	// World preview state. Chunk coordinates rather than block coordinates,
+	// since that is the unit generation works in.
+	let worldChunkX = $state(0)
+	let worldChunkZ = $state(0)
+	let worldRadius = $state(0)
+	let worldInfo = $state('')
+
 	let generating = $state(false)
 	let saving = $state(false)
 	let cursor = $state({ line: 1, column: 1 })
@@ -119,6 +128,7 @@
 
 	const activeDoc = $derived(docs.find((d) => d.key === activeKey) ?? null)
 	const activeTree = $derived(activeDoc && activeDoc.kind === 'tree' ? activeDoc : null)
+	const activeWorld = $derived(activeDoc && activeDoc.kind === 'world' ? activeDoc : null)
 	const filteredTrees = $derived(trees.filter((t) => t.toLowerCase().includes(searchQuery.toLowerCase())))
 	const dirtyCount = $derived(docs.filter(isDirty).length)
 
@@ -129,6 +139,7 @@
 
 	function docLabel(d: Doc): string {
 		if (d.kind === 'replacers') return 'Tree Replacers'
+		if (d.kind === 'world') return 'World Preview'
 		return (d.name.trim() || 'untitled') + '.json'
 	}
 
@@ -288,6 +299,13 @@
 		}
 	}
 
+	function openWorld(): void {
+		if (!docs.some((d) => d.key === WORLD_KEY)) {
+			docs = [...docs, makeDoc({ key: WORLD_KEY, kind: 'world' })]
+		}
+		setActive(WORLD_KEY)
+	}
+
 	function openReplacers(): void {
 		if (!docs.some((d) => d.key === REPLACERS_KEY)) {
 			docs = [...docs, makeDoc({ key: REPLACERS_KEY, kind: 'replacers' })]
@@ -299,7 +317,7 @@
 	function setActive(key: string): void {
 		activeKey = key
 		const d = docs.find((x) => x.key === key)
-		if (d?.kind !== 'tree') return
+		if (d?.kind !== 'tree' && d?.kind !== 'world') return
 		const cached = blockCache.get(key)
 		if (cached) void renderBlocks(cached)
 		else scheduleGenerate(true)
@@ -435,6 +453,10 @@
 	}
 
 	async function runGenerate(): Promise<void> {
+		if (activeWorld) {
+			await runWorldGenerate()
+			return
+		}
 		const doc = activeTree
 		if (!doc || !assetsBaseURL) return
 
@@ -487,6 +509,55 @@
 				error: sessionNote !== '',
 				details: '',
 			}
+			if (activeKey === docKey) await renderBlocks(blocks)
+		} catch (e) {
+			if (seq !== genSeq) return
+			const err = e as BackendError
+			doc.status = { message: err.message, error: true, details: err.detail ?? '' }
+		} finally {
+			if (seq === genSeq) generating = false
+		}
+	}
+
+	// The world preview shows the whole datapack applied to real terrain, so
+	// unlike a single-tree preview it always wants a session. Without one the
+	// backend generates plain vanilla, which is a legitimate answer but not the
+	// question this view is asking.
+	async function runWorldGenerate(): Promise<void> {
+		const doc = activeWorld
+		if (!doc || !assetsBaseURL) return
+
+		const seq = ++genSeq
+		const docKey = doc.key
+		generating = true
+		doc.status = { message: 'Generating chunks...', error: false, details: '' }
+		const started = performance.now()
+
+		try {
+			const sessionId = await ensureSession(conn)
+			const result = await previewChunk(conn, {
+				sessionId: sessionId ?? undefined,
+				chunkX: worldChunkX,
+				chunkZ: worldChunkZ,
+				radius: worldRadius,
+				seed: previewSeed,
+			})
+			if (seq !== genSeq) return
+
+			const blocks = result.blocks.filter((b) => b.name !== 'minecraft:air')
+			const target = docs.find((d) => d.key === docKey)
+			if (!target) return
+			blockCache.set(docKey, blocks)
+			target.blockCount = blocks.length
+			target.genMs = Math.round(performance.now() - started)
+			target.status = {
+				message: `${result.chunkCount} chunk${result.chunkCount === 1 ? '' : 's'}, ${blocks.length} blocks`,
+				error: false,
+				details: '',
+			}
+			worldInfo = result.datapackApplied
+				? `y ${result.minY}..${result.maxY} · ${result.decoratedCount} placed`
+				: `y ${result.minY}..${result.maxY} · vanilla only (nothing saved yet)`
 			if (activeKey === docKey) await renderBlocks(blocks)
 		} catch (e) {
 			if (seq !== genSeq) return
@@ -827,6 +898,25 @@
 						<span class="file-name">Manage replacers</span>
 					</div>
 				</div>
+
+				<div class="explorer-group">
+					<div class="group-head">
+						<span class="caret">▾</span>
+						<span class="group-name mono">world</span>
+					</div>
+					<div class="group-path mono">real terrain · this datapack</div>
+					<div
+						class="file-row"
+						class:on={activeKey === WORLD_KEY}
+						role="button"
+						tabindex="0"
+						onclick={openWorld}
+						onkeydown={(e) => e.key === 'Enter' && openWorld()}
+					>
+						<Icon name="grid" size={13} />
+						<span class="file-name">World preview</span>
+					</div>
+				</div>
 			</div>
 
 			<div class="explorer-foot">
@@ -850,7 +940,7 @@
 						onkeydown={(e) => e.key === 'Enter' && setActive(d.key)}
 						onauxclick={(e) => e.button === 1 && requestClose(d.key)}
 					>
-						<Icon name={d.kind === 'replacers' ? 'shuffle' : 'tree'} size={13} />
+						<Icon name={d.kind === 'replacers' ? 'shuffle' : d.kind === 'world' ? 'grid' : 'tree'} size={13} />
 						<span class="tab-label">{docLabel(d)}</span>
 						<span class="tab-indicator">
 							{#if isDirty(d)}<span class="tab-dirty" title="Unsaved changes"></span>{/if}
@@ -965,7 +1055,40 @@
 						<canvas bind:this={canvasEl}></canvas>
 						<div class="viewport-vignette"></div>
 
-						{#if activeTree}
+						{#if activeWorld}
+							<div class="viewport-toolbar">
+								<div class="tool-group">
+									<label class="coord-field">
+										<span class="coord-label mono">x</span>
+										<input type="number" bind:value={worldChunkX} aria-label="Chunk X" />
+									</label>
+									<label class="coord-field">
+										<span class="coord-label mono">z</span>
+										<input type="number" bind:value={worldChunkZ} aria-label="Chunk Z" />
+									</label>
+									<span class="tool-sep"></span>
+									<select class="biome-select" bind:value={worldRadius} aria-label="Area size">
+										<option value={0}>1 chunk</option>
+										<option value={1}>3 × 3</option>
+									</select>
+									<span class="tool-sep"></span>
+									<button
+										class="tool-btn"
+										title="Generate (Ctrl+Enter)"
+										disabled={generating}
+										onclick={() => scheduleGenerate(true, true)}
+									>
+										<Icon name={generating ? 'spinner' : 'bolt'} size={15} class={generating ? 'spin' : ''} />
+									</button>
+									<button class="tool-btn" class:active={autoRotateOn} title="Auto-rotate" aria-pressed={autoRotateOn} onclick={toggleAutoRotate}>
+										<Icon name="orbit" size={15} />
+									</button>
+								</div>
+							</div>
+							{#if worldInfo}
+								<div class="world-readout mono">{worldInfo}</div>
+							{/if}
+						{:else if activeTree}
 							<div class="viewport-toolbar">
 								<div class="tool-group">
 									<select class="biome-select" bind:value={biome} onchange={onBiomeChange} aria-label="Preview biome tint">
@@ -1774,6 +1897,59 @@
 		font-size: 11.5px;
 		padding: 5px 24px 5px 8px;
 		background-position: right 4px center;
+	}
+
+	.coord-field {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 0 4px;
+	}
+
+	.coord-label {
+		font-size: 10.5px;
+		color: var(--text-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+
+	.coord-field input {
+		width: 52px;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid transparent;
+		color: var(--text-dim);
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		padding: 4px 2px;
+		text-align: right;
+	}
+
+	.coord-field input:hover {
+		border-bottom-color: var(--line);
+	}
+
+	.coord-field input:focus {
+		outline: none;
+		color: var(--text);
+		border-bottom-color: var(--accent-line);
+	}
+
+	/* Sits under the toolbar rather than inside it: this is a readout of what
+	   was generated, not another control to reach for. */
+	.world-readout {
+		position: absolute;
+		top: 52px;
+		left: 50%;
+		transform: translateX(-50%);
+		font-size: 10.5px;
+		color: var(--text-faint);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--r-sm, 4px);
+		padding: 3px 9px;
+		pointer-events: none;
+		white-space: nowrap;
 	}
 
 	.biome-select:hover {

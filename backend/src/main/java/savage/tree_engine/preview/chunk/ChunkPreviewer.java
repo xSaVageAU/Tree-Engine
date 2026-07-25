@@ -45,9 +45,31 @@ public final class ChunkPreviewer {
 		this.server = server;
 	}
 
+	/**
+	 * How much ground to include beneath the lowest surface point. Enough to
+	 * read the terrain as solid without dragging the whole stone column along.
+	 */
+	private static final int FLOOR_DEPTH = 4;
+
+	/** Headroom above the tallest thing, so nothing is clipped at the top. */
+	private static final int HEADROOM = 2;
+
+	/**
+	 * Ceiling on how tall an auto-fitted window may be.
+	 *
+	 * Across several chunks the terrain can span a valley and a hilltop, and
+	 * anchoring the window at the lowest surface then fills every high column
+	 * with solid rock the viewer cannot see into - measured at 74k blocks for a
+	 * 3x3 before this cap, against 3k for a single flat chunk. Anchoring at the
+	 * top instead keeps the surface and everything on it, and trades away the
+	 * bottom of deep valleys. The window actually used is reported back, so the
+	 * trade is visible rather than silent.
+	 */
+	private static final int MAX_WINDOW_HEIGHT = 48;
+
 	public Result preview(
 		RegistryAccess registries, int centerX, int centerZ, int radius,
-		long seed, boolean fullChunk) {
+		long seed, boolean fullChunk, Integer requestedMinY, Integer requestedMaxY) {
 
 		int span = radius * 2 + 1;
 		if (radius < 0) {
@@ -98,17 +120,37 @@ public final class ChunkPreviewer {
 			}
 		}
 
+		// A chunk spans hundreds of blocks vertically and is nearly all stone.
+		// Fitting the window to the surface is what makes this preview useful
+		// rather than a rock column: it keeps the ground and everything
+		// growing on it, and discards the rest before it hits the wire.
+		int fromY;
+		int toY;
+		if (requestedMinY != null && requestedMaxY != null) {
+			fromY = Math.min(requestedMinY, requestedMaxY);
+			toY = Math.max(requestedMinY, requestedMaxY);
+		} else {
+			int lowestSurface = Integer.MAX_VALUE;
+			int highest = Integer.MIN_VALUE;
+			for (TerrainSnapshot snapshot : requested) {
+				lowestSurface = Math.min(lowestSurface, level.lowestSurface(snapshot));
+				highest = Math.max(highest, level.highestOccupied(snapshot));
+			}
+			toY = highest + HEADROOM;
+			fromY = Math.max(lowestSurface - FLOOR_DEPTH, toY - MAX_WINDOW_HEIGHT);
+		}
+
 		List<BlockDto> blocks;
 		if (fullChunk) {
 			blocks = new ArrayList<>();
 			for (TerrainSnapshot snapshot : requested) {
-				blocks.addAll(level.fullChunk(snapshot));
+				blocks.addAll(level.fullChunk(snapshot, fromY, toY));
 			}
 		} else {
 			blocks = level.decorated();
 		}
 
-		return new Result(blocks, requested.size(), level.decorated().size());
+		return new Result(blocks, requested.size(), level.decorated().size(), fromY, toY);
 	}
 
 	/**
@@ -117,11 +159,10 @@ public final class ChunkPreviewer {
 	 * A session's registries deliberately do not contain dimensions:
 	 * {@code RegistryDataLoader.WORLDGEN_REGISTRIES} covers biomes and
 	 * features, while level stems live in DIMENSION_REGISTRIES, which a tree
-	 * datapack has no reason to provide. So the running world's generator is
-	 * used for the mechanics of decoration, and the datapack's influence
-	 * arrives through the biomes {@link ChunkPreviewLevel} hands back - see
-	 * the biome remapping there. That split is what keeps terrain real while
-	 * still previewing the user's features.
+	 * datapack has no reason to provide. So the running world's generator
+	 * supplies the terrain behaviour, wrapped in {@link SessionGenerator} to
+	 * redirect feature lookups at the session. That split is what keeps
+	 * terrain real while still previewing the user's features.
 	 */
 	private ChunkGenerator generatorFor(RegistryAccess registries) {
 		// lookup, not lookupOrThrow: the registry being absent entirely is the
@@ -142,6 +183,7 @@ public final class ChunkPreviewer {
 	 * @param decoratedCount how many blocks decoration added, always reported
 	 *                       so a preview that produced no trees is obvious
 	 */
-	public record Result(List<BlockDto> blocks, int chunkCount, int decoratedCount) {
+	public record Result(
+		List<BlockDto> blocks, int chunkCount, int decoratedCount, int minY, int maxY) {
 	}
 }

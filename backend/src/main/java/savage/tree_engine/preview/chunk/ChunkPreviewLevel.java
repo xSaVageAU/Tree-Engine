@@ -100,15 +100,17 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 	 * was placed on it. This is what a renderer showing "the chunk as it would
 	 * appear in game" needs.
 	 */
-	public List<BlockDto> fullChunk(TerrainSnapshot snapshot) {
+	public List<BlockDto> fullChunk(TerrainSnapshot snapshot, int fromY, int toY) {
 		List<BlockDto> out = new ArrayList<>();
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		int baseX = snapshot.pos().getMinBlockX();
 		int baseZ = snapshot.pos().getMinBlockZ();
-		for (int y = 0; y < snapshot.height(); y++) {
+		int lo = Math.max(fromY, snapshot.minY());
+		int hi = Math.min(toY, snapshot.minY() + snapshot.height() - 1);
+		for (int y = lo; y <= hi; y++) {
 			for (int z = 0; z < 16; z++) {
 				for (int x = 0; x < 16; x++) {
-					cursor.set(baseX + x, snapshot.minY() + y, baseZ + z);
+					cursor.set(baseX + x, y, baseZ + z);
 					BlockState state = getBlockState(cursor);
 					if (state.isAir()) {
 						continue;
@@ -118,6 +120,35 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 			}
 		}
 		return out;
+	}
+
+	/**
+	 * The highest occupied block across a chunk, counting decoration.
+	 * Used to fit the preview window to what is actually there.
+	 */
+	public int highestOccupied(TerrainSnapshot snapshot) {
+		int baseX = snapshot.pos().getMinBlockX();
+		int baseZ = snapshot.pos().getMinBlockZ();
+		int highest = snapshot.minY();
+		for (int z = 0; z < 16; z++) {
+			for (int x = 0; x < 16; x++) {
+				highest = Math.max(highest, getHeight(Heightmap.Types.MOTION_BLOCKING, baseX + x, baseZ + z));
+			}
+		}
+		return highest;
+	}
+
+	/** The lowest surface height across a chunk - where the ground starts. */
+	public int lowestSurface(TerrainSnapshot snapshot) {
+		int baseX = snapshot.pos().getMinBlockX();
+		int baseZ = snapshot.pos().getMinBlockZ();
+		int lowest = Integer.MAX_VALUE;
+		for (int z = 0; z < 16; z++) {
+			for (int x = 0; x < 16; x++) {
+				lowest = Math.min(lowest, getHeight(Heightmap.Types.MOTION_BLOCKING, baseX + x, baseZ + z));
+			}
+		}
+		return lowest == Integer.MAX_VALUE ? snapshot.minY() : lowest;
 	}
 
 	private TerrainSnapshot snapshotFor(BlockPos pos) {

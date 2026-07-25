@@ -55,7 +55,9 @@ public final class ChunkPreviewRoutes {
 			intOr(request, "chunkZ", 0),
 			intOr(request, "radius", 0),
 			request.has("seed") ? request.get("seed").getAsLong() : 0L,
-			!request.has("decoratedOnly") || !request.get("decoratedOnly").getAsBoolean());
+			!request.has("decoratedOnly") || !request.get("decoratedOnly").getAsBoolean(),
+			intOrNull(request, "minY"),
+			intOrNull(request, "maxY"));
 
 		JsonObject response = new JsonObject();
 		response.add("blocks", gson.toJsonTree(result.blocks()));
@@ -63,7 +65,16 @@ public final class ChunkPreviewRoutes {
 		response.addProperty("chunkCount", result.chunkCount());
 		response.addProperty("decoratedCount", result.decoratedCount());
 		response.addProperty("datapackApplied", sessionId != null);
+		// The vertical window actually used, so a client can frame the camera
+		// without guessing where the ground is.
+		response.addProperty("minY", result.minY());
+		response.addProperty("maxY", result.maxY());
 		Http.sendJson(exchange, 200, gson.toJson(response));
+	}
+
+	private static Integer intOrNull(JsonObject object, String key) {
+		JsonElement value = object.get(key);
+		return value == null || value.isJsonNull() ? null : value.getAsInt();
 	}
 
 	private static int intOr(JsonObject object, String key, int fallback) {
