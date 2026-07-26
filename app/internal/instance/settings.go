@@ -9,7 +9,9 @@ import (
 // State, which records what first-run setup auto-detected/installed. This is
 // where future options (Minecraft version, Java path override, etc.) belong.
 type Settings struct {
-	AutoStartOnLaunch bool `json:"autoStartOnLaunch"`
+	AutoStartOnLaunch      bool     `json:"autoStartOnLaunch"`
+	TargetMinecraftVersion string   `json:"targetMinecraftVersion"`
+	JavaPathOverride       string   `json:"javaPathOverride"`
 
 	// RecentProjects is a most-recent-first, de-duplicated list of project
 	// folders previously opened, for the "Open Recent" list on the
@@ -42,7 +44,7 @@ func (s *Settings) WithRecentProject(path string) []string {
 func LoadSettings(path string) (*Settings, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &Settings{}, nil
+		return &Settings{TargetMinecraftVersion: "26.2"}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -50,6 +52,9 @@ func LoadSettings(path string) (*Settings, error) {
 	var s Settings
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
+	}
+	if s.TargetMinecraftVersion == "" {
+		s.TargetMinecraftVersion = "26.2"
 	}
 	return &s, nil
 }

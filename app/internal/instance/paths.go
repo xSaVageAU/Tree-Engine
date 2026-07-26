@@ -60,8 +60,16 @@ func (l Layout) ServerPropertiesPath() string {
 	return filepath.Join(l.InstanceDir, "server.properties")
 }
 
+func (l Layout) ServerJarsDir() string {
+	return filepath.Join(l.Root, "servers")
+}
+
+func (l Layout) VersionServerJarPath(gameVersion string) string {
+	return filepath.Join(l.ServerJarsDir(), "fabric-server-"+gameVersion+".jar")
+}
+
 func (l Layout) EnsureDirs() error {
-	dirs := []string{l.Root, l.InstanceDir, l.ModsDir(), l.ConfigDir()}
+	dirs := []string{l.Root, l.InstanceDir, l.ModsDir(), l.ConfigDir(), l.ServerJarsDir()}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
@@ -69,3 +77,4 @@ func (l Layout) EnsureDirs() error {
 	}
 	return nil
 }
+

@@ -11,6 +11,8 @@ export function DeleteTree(arg1:string):Promise<void>;
 
 export function EnsureAssets():Promise<main.AssetsPayload>;
 
+export function GetAvailableVersions():Promise<Array<instance.VersionStatus>>;
+
 export function GetCurrentProject():Promise<main.ProjectInfo>;
 
 export function GetPlacement(arg1:string):Promise<string>;
@@ -52,3 +54,5 @@ export function SaveTree(arg1:string,arg2:string):Promise<void>;
 export function StartServer():Promise<void>;
 
 export function StopServer():Promise<void>;
+
+export function SwapServerVersion(arg1:string):Promise<void>;

@@ -18,6 +18,10 @@ export function EnsureAssets() {
   return window['go']['main']['App']['EnsureAssets']();
 }
 
+export function GetAvailableVersions() {
+  return window['go']['main']['App']['GetAvailableVersions']();
+}
+
 export function GetCurrentProject() {
   return window['go']['main']['App']['GetCurrentProject']();
 }
@@ -100,4 +104,8 @@ export function StartServer() {
 
 export function StopServer() {
   return window['go']['main']['App']['StopServer']();
+}
+
+export function SwapServerVersion(arg1) {
+  return window['go']['main']['App']['SwapServerVersion'](arg1);
 }

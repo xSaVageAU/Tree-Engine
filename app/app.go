@@ -144,6 +144,73 @@ func (a *App) SaveSettings(s instance.Settings) error {
 	return s.Save(a.layout.SettingsFile)
 }
 
+// GetAvailableVersions fetches 26.x Minecraft versions from Fabric Meta and returns download/active status.
+func (a *App) GetAvailableVersions() ([]instance.VersionStatus, error) {
+	a.mu.Lock()
+	activeVersion := "26.2"
+	if a.state != nil && a.state.GameVersion != "" {
+		activeVersion = a.state.GameVersion
+	} else if a.settings != nil && a.settings.TargetMinecraftVersion != "" {
+		activeVersion = a.settings.TargetMinecraftVersion
+	}
+	a.mu.Unlock()
+
+	return instance.GetAvailableVersions(a.ctx, a.layout, activeVersion)
+}
+
+// SwapServerVersion downloads (if needed) the server jar for targetVersion, stops the server if running,
+// updates the active server jar, persists the new version setting/state, and restarts the server if it was running.
+func (a *App) SwapServerVersion(targetVersion string) error {
+	a.mu.Lock()
+	proc := a.proc
+	wasRunning := proc != nil && proc.Running()
+	state := a.state
+	settings := a.settings
+	a.mu.Unlock()
+
+	if targetVersion == "" {
+		return fmt.Errorf("invalid target version")
+	}
+
+	if wasRunning && proc != nil {
+		a.emitStatus(a.currentPhase(), fmt.Sprintf("Stopping server to swap version to %s...", targetVersion))
+		_ = proc.Stop(30 * time.Second)
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	a.emitStatus(PhaseSettingUp, fmt.Sprintf("Preparing Fabric server for Minecraft %s...", targetVersion))
+
+	loaderVer, installerVer, err := instance.EnsureVersionJar(a.ctx, a.layout, targetVersion, func(stage, message string) {
+		a.emitStatus(PhaseSettingUp, message)
+	})
+	if err != nil {
+		a.emitStatus(PhaseError, fmt.Sprintf("Failed to swap version: %v", err))
+		return err
+	}
+
+	a.mu.Lock()
+	if state != nil {
+		state.GameVersion = targetVersion
+		state.LoaderVersion = loaderVer
+		state.InstallerVersion = installerVer
+		_ = state.Save(a.layout.StateFile)
+	}
+	if settings != nil {
+		settings.TargetMinecraftVersion = targetVersion
+		_ = settings.Save(a.layout.SettingsFile)
+	}
+	a.mu.Unlock()
+
+	if wasRunning {
+		a.emitStatus(PhaseStopped, fmt.Sprintf("Version swapped to %s. Restarting server...", targetVersion))
+		a.StartServer()
+	} else {
+		a.emitStatus(PhaseStopped, fmt.Sprintf("Swapped to Minecraft %s.", targetVersion))
+	}
+
+	return nil
+}
+
 // GetStatus returns the current phase/state for the frontend's initial render.
 func (a *App) GetStatus() StatusPayload {
 	a.mu.Lock()
@@ -265,6 +332,11 @@ func (a *App) StartServer() {
 
 	a.emitStatus(PhaseStarting, "Starting server...")
 
+	javaExecutable := state.JavaPath
+	if a.settings != nil && a.settings.JavaPathOverride != "" {
+		javaExecutable = a.settings.JavaPathOverride
+	}
+
 	// Both readiness signals converge here, and only the first one to succeed
 	// reports. /v1/health needs a bearer token we deliberately do not send:
 	// any HTTP response at all, 401 included, proves the backend is answering,
@@ -280,7 +352,7 @@ func (a *App) StartServer() {
 	}
 
 	proc, err := serverproc.Launch(a.ctx, serverproc.Options{
-		JavaPath: state.JavaPath,
+		JavaPath: javaExecutable,
 		JarPath:  a.layout.ServerJarPath(),
 		WorkDir:  a.layout.InstanceDir,
 		OnLine:   a.emitLog,

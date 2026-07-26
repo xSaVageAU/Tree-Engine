@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -45,19 +46,9 @@ func Run(ctx context.Context, l Layout, eulaAccepted bool, progress ProgressFunc
 		return nil, err
 	}
 
-	progress("fabric", "Resolving Fabric loader/installer versions...")
-	loaderVersion, err := fabricmeta.LatestStableLoader(ctx)
+	loaderVersion, installerVersion, err := EnsureVersionJar(ctx, l, manifest.MinecraftVersion, progress)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve fabric loader version: %w", err)
-	}
-	installerVersion, err := fabricmeta.LatestStableInstaller(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve fabric installer version: %w", err)
-	}
-
-	progress("fabric", fmt.Sprintf("Downloading Fabric server (Minecraft %s, loader %s)...", manifest.MinecraftVersion, loaderVersion))
-	if err := fabricmeta.DownloadServerJar(ctx, manifest.MinecraftVersion, loaderVersion, installerVersion, l.ServerJarPath()); err != nil {
-		return nil, fmt.Errorf("failed to download fabric server: %w", err)
+		return nil, err
 	}
 
 	progress("fabric-api", "Downloading Fabric API...")
@@ -141,3 +132,53 @@ func resolveJava(ctx context.Context, l Layout, progress ProgressFunc) (string, 
 	progress("java", "Java runtime downloaded.")
 	return javaPath, nil
 }
+
+// EnsureVersionJar ensures the Fabric server jar for gameVersion exists in
+// AppData (l.VersionServerJarPath), downloading it if missing, and copies it
+// to the active instance's l.ServerJarPath().
+func EnsureVersionJar(ctx context.Context, l Layout, gameVersion string, progress ProgressFunc) (loaderVersion, installerVersion string, err error) {
+	if progress == nil {
+		progress = func(string, string) {}
+	}
+	cachedPath := l.VersionServerJarPath(gameVersion)
+	if err := l.EnsureDirs(); err != nil {
+		return "", "", err
+	}
+
+	progress("fabric", "Resolving Fabric loader/installer versions...")
+	loaderVersion, err = fabricmeta.LatestStableLoader(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve fabric loader version: %w", err)
+	}
+	installerVersion, err = fabricmeta.LatestStableInstaller(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to resolve fabric installer version: %w", err)
+	}
+
+	if _, statErr := os.Stat(cachedPath); os.IsNotExist(statErr) {
+		progress("fabric", fmt.Sprintf("Downloading Fabric server jar for Minecraft %s...", gameVersion))
+		if err := fabricmeta.DownloadServerJar(ctx, gameVersion, loaderVersion, installerVersion, cachedPath); err != nil {
+			return "", "", fmt.Errorf("failed to download fabric server: %w", err)
+		}
+	}
+
+	// Copy cached jar to active launch path
+	src, err := os.Open(cachedPath)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to open cached server jar: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(l.ServerJarPath())
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create launch server jar: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return "", "", fmt.Errorf("failed to copy server jar: %w", err)
+	}
+
+	return loaderVersion, installerVersion, nil
+}
+

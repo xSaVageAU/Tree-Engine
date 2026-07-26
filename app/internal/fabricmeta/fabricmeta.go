@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 )
 
 const baseURL = "https://meta.fabricmc.net/v2"
@@ -25,6 +26,12 @@ type installerVersion struct {
 	Version string `json:"version"`
 	Stable  bool   `json:"stable"`
 }
+
+type gameVersion struct {
+	Version string `json:"version"`
+	Stable  bool   `json:"stable"`
+}
+
 
 func getJSON(ctx context.Context, url string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -102,3 +109,47 @@ func DownloadServerJar(ctx context.Context, gameVersion, loaderVersion, installe
 	}
 	return nil
 }
+
+type GameVersionDetails struct {
+	Version string `json:"version"`
+	Stable  bool   `json:"stable"`
+}
+
+// Fetch26PlusGameVersions returns a list of Fabric-supported Minecraft game
+// versions matching 26.x (26.1 and newer), newest-first with stability metadata.
+func Fetch26PlusGameVersions(ctx context.Context) ([]GameVersionDetails, error) {
+	var versions []gameVersion
+	if err := getJSON(ctx, baseURL+"/versions/game", &versions); err != nil {
+		// Fallback list if offline or API unreachable
+		return []GameVersionDetails{
+			{Version: "26.2", Stable: true},
+			{Version: "26.1.2", Stable: true},
+			{Version: "26.1.1", Stable: true},
+			{Version: "26.1", Stable: true},
+		}, nil
+	}
+
+	var res []GameVersionDetails
+	seen := make(map[string]bool)
+	for _, v := range versions {
+		if strings.HasPrefix(v.Version, "26.") && !seen[v.Version] {
+			res = append(res, GameVersionDetails{
+				Version: v.Version,
+				Stable:  v.Stable,
+			})
+			seen[v.Version] = true
+		}
+	}
+
+	// Always ensure 26.2 is present as fallback
+	if len(res) == 0 {
+		return []GameVersionDetails{
+			{Version: "26.2", Stable: true},
+			{Version: "26.1.2", Stable: true},
+			{Version: "26.1.1", Stable: true},
+			{Version: "26.1", Stable: true},
+		}, nil
+	}
+	return res, nil
+}
+

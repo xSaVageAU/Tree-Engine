@@ -51,6 +51,8 @@ export namespace instance {
 	
 	export class Settings {
 	    autoStartOnLaunch: boolean;
+	    targetMinecraftVersion: string;
+	    javaPathOverride: string;
 	    recentProjects: string[];
 	
 	    static createFrom(source: any = {}) {
@@ -60,7 +62,31 @@ export namespace instance {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.autoStartOnLaunch = source["autoStartOnLaunch"];
+	        this.targetMinecraftVersion = source["targetMinecraftVersion"];
+	        this.javaPathOverride = source["javaPathOverride"];
 	        this.recentProjects = source["recentProjects"];
+	    }
+	}
+	export class VersionStatus {
+	    gameVersion: string;
+	    stable: boolean;
+	    category: string;
+	    isActive: boolean;
+	    isDownloaded: boolean;
+	    supportedByMod: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new VersionStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.gameVersion = source["gameVersion"];
+	        this.stable = source["stable"];
+	        this.category = source["category"];
+	        this.isActive = source["isActive"];
+	        this.isDownloaded = source["isDownloaded"];
+	        this.supportedByMod = source["supportedByMod"];
 	    }
 	}
 
