@@ -1,7 +1,6 @@
 package savage.tree_engine.preview.chunk;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.particles.ParticleOptions;
@@ -99,23 +98,35 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 
 	/**
 	 * The full contents of one chunk after decoration - terrain plus whatever
-	 * was placed on it. This is what a renderer showing "the chunk as it would
-	 * appear in game" needs.
+	 * was placed on it, every non-air block between the cut heights.
+	 *
+	 * This used to drop any block sealed in on all six sides, on the reasoning
+	 * that a block with six opaque neighbours contributes no visible face. That
+	 * was true of the first frame and false of everything else: those blocks are
+	 * simply absent, so a mountain arrives as a hollow shell, and any view that
+	 * gets inside it - or any later decision about what to draw - has nothing to
+	 * work with. It also disagreed with the renderer about what "opaque" means
+	 * ({@code canOcclude} here versus {@code isSolidRender} in BlockFlagsDto), so
+	 * the two culls did not compose: a block could be dropped here that the
+	 * renderer would have drawn faces for.
+	 *
+	 * Hiding blocks is the renderer's job, and it does it per face at draw time,
+	 * the way the game does. This reports what generated.
 	 */
-	public List<BlockDto> fullChunk(TerrainSnapshot snapshot, Window window) {
+	public List<BlockDto> fullChunk(TerrainSnapshot snapshot, int floorY, int ceilingY) {
 		List<BlockDto> out = new ArrayList<>();
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		int baseX = snapshot.pos().getMinBlockX();
 		int baseZ = snapshot.pos().getMinBlockZ();
-		int lo = Math.max(window.minY(), snapshot.minY());
-		int hi = Math.min(window.maxY(), snapshot.minY() + snapshot.height() - 1);
+		int lo = Math.max(floorY, snapshot.minY());
+		int hi = Math.min(ceilingY, snapshot.minY() + snapshot.height() - 1);
 
 		for (int y = lo; y <= hi; y++) {
 			for (int z = 0; z < 16; z++) {
 				for (int x = 0; x < 16; x++) {
 					cursor.set(baseX + x, y, baseZ + z);
 					BlockState state = getBlockState(cursor);
-					if (state.isAir() || hidden(cursor, window)) {
+					if (state.isAir()) {
 						continue;
 					}
 					out.add(BlockDto.of(cursor.getX(), cursor.getY(), cursor.getZ(), state));
@@ -126,54 +137,11 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 	}
 
 	/**
-	 * Whether a block is sealed in on all six sides and therefore cannot be
-	 * seen from outside the preview.
-	 *
-	 * Cutting the world at a flat height means everything below the surface
-	 * comes back solid, and the overwhelming majority of it is buried stone.
-	 * Dropping it is not a visual compromise - a block with six opaque
-	 * neighbours contributes no visible face - but it removes most of the
-	 * volume, which is what makes a flat cutoff affordable at all.
-	 *
-	 * A face on the edge of the window counts as exposed, so the cut plane and
-	 * the outer walls stay solid and the result reads as a cross-section
-	 * rather than a hollow shell.
-	 */
-	private boolean hidden(BlockPos pos, Window window) {
-		BlockPos.MutableBlockPos neighbour = new BlockPos.MutableBlockPos();
-		for (Direction direction : Direction.values()) {
-			neighbour.set(pos).move(direction);
-			if (!window.contains(neighbour)) {
-				return false;
-			}
-			if (!getBlockState(neighbour).canOcclude()) {
-				return false;
-			}
-		}
-		return true;
-	}
-
-	/**
-	 * The box a preview covers. Anything outside it is treated as open space,
-	 * which is what keeps the boundary faces visible.
-	 */
-	public record Window(int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
-		public boolean contains(BlockPos pos) {
-			return pos.getX() >= minX && pos.getX() <= maxX
-				&& pos.getY() >= minY && pos.getY() <= maxY
-				&& pos.getZ() >= minZ && pos.getZ() <= maxZ;
-		}
-	}
-
-	/**
 	 * Blocks decoration placed outside the given chunks.
 	 *
 	 * A tree near a chunk edge legitimately writes part of its canopy into the
 	 * neighbour. Those blocks belong to the preview - dropping them slices the
 	 * tree cleanly in half along the chunk border.
-	 *
-	 * These are not interior-culled: they sit outside the emitted box by
-	 * definition, so nothing around them is solid.
 	 */
 	public List<BlockDto> spillOutside(java.util.Set<Long> chunks, int fromY, int toY) {
 		List<BlockDto> out = new ArrayList<>();

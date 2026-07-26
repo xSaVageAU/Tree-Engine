@@ -126,8 +126,10 @@ public final class ChunkPreviewer {
 		// column. Earlier versions were cleverer about this - fitting a window
 		// to the surface, then a crust that followed it - and both produced
 		// artefacts on sloped ground that looked like missing terrain. A
-		// single honest cut reads as a cross-section, and interior culling in
-		// fullChunk is what keeps it affordable.
+		// single honest cut reads as a cross-section. The floor is the only
+		// thing that decides what is in a preview; everything above it that
+		// generated is reported, and deciding what is visible is the renderer's
+		// job.
 		int floorY = requestedMinY != null ? requestedMinY : DEFAULT_FLOOR_Y;
 		int ceilingY;
 		if (requestedMaxY != null) {
@@ -145,22 +147,9 @@ public final class ChunkPreviewer {
 
 		List<BlockDto> blocks;
 		if (fullChunk) {
-			int minX = Integer.MAX_VALUE;
-			int maxX = Integer.MIN_VALUE;
-			int minZ = Integer.MAX_VALUE;
-			int maxZ = Integer.MIN_VALUE;
-			for (TerrainSnapshot snapshot : requested) {
-				minX = Math.min(minX, snapshot.pos().getMinBlockX());
-				maxX = Math.max(maxX, snapshot.pos().getMinBlockX() + 15);
-				minZ = Math.min(minZ, snapshot.pos().getMinBlockZ());
-				maxZ = Math.max(maxZ, snapshot.pos().getMinBlockZ() + 15);
-			}
-			ChunkPreviewLevel.Window window =
-				new ChunkPreviewLevel.Window(minX, maxX, floorY, ceilingY, minZ, maxZ);
-
 			blocks = new ArrayList<>();
 			for (TerrainSnapshot snapshot : requested) {
-				blocks.addAll(level.fullChunk(snapshot, window));
+				blocks.addAll(level.fullChunk(snapshot, floorY, ceilingY));
 			}
 			// Decoration that reached past the requested chunks comes along,
 			// so a tree on a border is not sliced in half.
