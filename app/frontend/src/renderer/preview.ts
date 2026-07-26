@@ -2,12 +2,18 @@
 //
 // Thin wrapper that owns the GL context, an arc-style camera (left-drag to
 // rotate, right-drag to pan, wheel to zoom) and the render loop. Feed it a
-// BuiltStructure + AssetResources and it draws the tree; call setStructure()
-// to swap in a freshly generated one without recreating the GL context.
+// BuiltStructure + AssetResources and it draws the tree; call setBlocks() to
+// swap in a freshly generated one without recreating the GL context.
+//
+// Geometry is built by our own ChunkMesher rather than deepslate's ChunkBuilder
+// (see chunk-mesher.ts for why). deepslate's StructureRenderer is still used,
+// but only for what it is good at: compiling the shaders, owning the atlas
+// texture and drawing the bounding grid.
 
-import { Structure, StructureRenderer } from 'deepslate'
+import { Mesh, Structure, StructureRenderer } from 'deepslate'
 import { mat4, vec3 } from 'gl-matrix'
 import { applyBiomeTint, DEFAULT_BIOME } from './biome-colors'
+import { ChunkMesher, type SliceGroup } from './chunk-mesher'
 import { AssetResources } from './resources'
 import { buildStructure, type ApiBlock, type BuiltStructure } from './structure'
 
@@ -34,57 +40,65 @@ export function takeRenderTimings(): RenderTimings | null {
 
 // Size of the sub-chunks meshing is split into.
 //
-// Deliberately far below deepslate's default of 16. Measured on a 48x11x48
-// bamboo-like structure (~25k blocks, nothing cullable), meshing every slice:
+// Each slice now costs only what its own contents cost - the mesher reads the
+// slice's sub-volume directly instead of filtering the whole structure - so
+// bigger slices are strictly better: the same total geometry in fewer meshes,
+// fewer GL buffers and fewer draw calls. 16 matches deepslate's own default and
+// keeps a slice comfortably inside one frame.
 //
-//   16^3    9 slices   10.2s total   1230ms worst frame
-//    8^3   72 slices    8.0s total    575ms worst frame
-//    4^3  432 slices    7.4s total     29ms worst frame
-//
-// Smaller slices are not just smoother, they are faster overall - each slice
-// merges into a much smaller quad array, and that outweighs the extra passes
-// over the block list. 4^3 is the point where a slice fits comfortably inside
-// a frame.
-const SLICE_SIZE = 4
+// This used to be 4, tuned around two quadratics in deepslate's ChunkBuilder
+// that no longer apply. See the header of chunk-mesher.ts.
+const SLICE_SIZE = 16
 
 // How long to spend meshing per frame. Under a 16ms frame with room to spare
-// for the browser's own work, so the window stays responsive.
+// for the browser's own work, so the window stays responsive and the preview
+// visibly fills in rather than appearing after a stall.
 const FRAME_BUDGET_MS = 10
-
-// A deepslate Mesh, as far as this file needs to care: something with GL
-// buffers that the renderer knows how to draw, and that can be empty.
-type DeepslateMesh = { isEmpty(): boolean }
-
-// One entry of ChunkBuilder's internal chunk grid.
-type ChunkMeshes = { mesh: DeepslateMesh; transparentMesh: DeepslateMesh }
 
 function nextFrame(): Promise<void> {
 	return new Promise((resolve) => requestAnimationFrame(() => resolve()))
 }
 
-/**
- * Points an existing renderer at a new structure without triggering a full
- * rebuild.
- *
- * setStructure() would remesh everything synchronously, which is exactly what
- * this avoids. Both fields are private in deepslate's types but are plain
- * assigned properties at runtime, the same reach-past already used for
- * atlasTexture.
- */
-function adoptStructure(renderer: StructureRenderer, structure: Structure): void {
-	const internals = renderer as unknown as {
-		structure: Structure
-		chunkBuilder: { structure: Structure }
+// Frees every GL buffer a deepslate Mesh may have allocated. Mesh.rebuild
+// creates buffers lazily and has no teardown of its own, so replacing a mesh
+// without this leaks them for the lifetime of the context.
+const MESH_BUFFERS = [
+	'posBuffer', 'colorBuffer', 'textureBuffer', 'textureLimitBuffer',
+	'normalBuffer', 'blockPosBuffer', 'indexBuffer', 'linePosBuffer', 'lineColorBuffer',
+] as const
+
+function disposeMesh(gl: WebGLRenderingContext, mesh: Mesh | undefined): void {
+	if (!mesh) return
+	for (const field of MESH_BUFFERS) {
+		const buffer = (mesh as unknown as Record<string, WebGLBuffer | undefined>)[field]
+		if (buffer) gl.deleteBuffer(buffer)
 	}
-	internals.structure = structure
-	internals.chunkBuilder.structure = structure
+}
+
+// The parts of StructureRenderer this file drives directly. deepslate marks
+// them private/protected as API-surface hiding, but they are plain assigned
+// fields and prototype methods at runtime, so this cast reaches past the
+// declaration rather than around real encapsulation.
+interface RendererInternals {
+	structure: Structure
+	resources: AssetResources
+	atlasTexture: WebGLTexture
+	gridMesh: Mesh
+	shaderProgram: WebGLProgram
+	createAtlasTexture(image: ImageData): WebGLTexture
+	getGridMesh(): Mesh
+	setShader(shader: WebGLProgram): void
+	setTexture(texture: WebGLTexture, pixelSize?: number): void
+	prepareDraw(view: mat4): void
+	drawMesh(mesh: unknown, options: Record<string, boolean>): void
 }
 
 export class TreePreview {
 	private readonly gl: WebGLRenderingContext
-	private renderer: StructureRenderer
+	private readonly renderer: StructureRenderer
 	private resources: AssetResources
 	private structure: BuiltStructure
+	private mesher: ChunkMesher
 	private center: [number, number, number]
 	private currentBiome: string
 
@@ -97,6 +111,7 @@ export class TreePreview {
 	private showGrid: boolean
 	private autoRotating = false
 	private autoRotateHandle: number | null = null
+	private meshGeneration = 0
 
 	private constructor(
 		canvas: HTMLCanvasElement,
@@ -113,14 +128,22 @@ export class TreePreview {
 		this.showGrid = options.showGrid ?? true
 		this.viewDist = Math.max(8, Math.max(...built.size) * 1.4)
 		applyBiomeTint(this.currentBiome)
-		// Empty structure here for the same reason as setBlocks: meshing is
-		// done in slices afterwards so the first render does not freeze the
-		// window either.
+
+		// An *empty* structure of the right size: the renderer needs the size for
+		// its grid mesh, and nothing else. Handing it real blocks would make its
+		// own ChunkBuilder mesh them synchronously in the constructor.
+		//
+		// useInvisibleBlockBuffer is off because that buffer is both unused and
+		// ruinous here: it walks the entire bounding volume and emits a wireframe
+		// cube for every *empty* voxel, which on a 48x44x48 preview is 83k cubes -
+		// a million Line objects and their vertices - built on every reload and
+		// then never drawn.
 		this.renderer = new StructureRenderer(gl, new Structure(built.size), resources, {
 			chunkSize: SLICE_SIZE,
+			useInvisibleBlockBuffer: false,
 		})
 		this.fixAtlasFiltering()
-		adoptStructure(this.renderer, built.structure)
+		this.mesher = new ChunkMesher(gl, built, resources, SLICE_SIZE)
 		this.attachControls(canvas)
 		this.resize(canvas)
 	}
@@ -138,7 +161,7 @@ export class TreePreview {
 		const built = buildStructure(blocks)
 		const resources = await AssetResources.load(baseURL, built.specs)
 		const preview = new TreePreview(canvas, gl, built, resources, options)
-		await preview.meshInSlices(built.size, ++preview.meshGeneration)
+		await preview.meshInSlices(preview.mesher, ++preview.meshGeneration)
 		preview.requestRender()
 		return preview
 	}
@@ -165,19 +188,10 @@ export class TreePreview {
 		// Anything already meshing belongs to a superseded structure.
 		const generation = ++this.meshGeneration
 
-		// The renderer is built against an *empty* structure so its
-		// constructor has nothing to mesh, then the real structure is swapped
-		// in and meshed a slice at a time. Handing the real one to the
-		// constructor meshes the whole thing synchronously, which is a
-		// multi-second freeze on a dense chunk - measured at over 10s for a
-		// bamboo forest.
-		this.renderer = new StructureRenderer(this.gl, new Structure(built.size), this.resources, {
-			chunkSize: SLICE_SIZE,
-		})
-		this.fixAtlasFiltering()
-		adoptStructure(this.renderer, built.structure)
-
-		await this.meshInSlices(built.size, generation, onProgress)
+		this.refreshRenderer(built, this.resources)
+		this.mesher.dispose()
+		this.mesher = new ChunkMesher(this.gl, built, this.resources, SLICE_SIZE)
+		await this.meshInSlices(this.mesher, generation, onProgress)
 
 		lastRenderTimings = {
 			buildMs: Math.round(t1 - t0),
@@ -186,56 +200,72 @@ export class TreePreview {
 		}
 	}
 
-	/**
-	 * Meshes the structure a few sub-chunks per frame.
-	 *
-	 * The total work is unchanged - this is the same geometry either way - but
-	 * it is spread across frames so the window keeps responding and the
-	 * preview visibly fills in rather than appearing all at once after a
-	 * stall.
-	 */
-	private async meshInSlices(
-		size: [number, number, number],
-		generation: number,
-		onProgress?: (done: number, total: number) => void,
-	): Promise<void> {
-		const positions: [number, number, number][] = []
-		for (let x = 0; x * SLICE_SIZE < size[0]; x++) {
-			for (let y = 0; y * SLICE_SIZE < size[1]; y++) {
-				for (let z = 0; z * SLICE_SIZE < size[2]; z++) {
-					positions.push([x, y, z])
-				}
-			}
-		}
-
-		// Work to a time budget rather than a fixed slice count: slices vary
-		// enormously in cost (solid rock versus open air), so a fixed batch
-		// either wastes frames on empty ones or overruns on dense ones.
-		let done = 0
-		while (done < positions.length) {
-			if (generation !== this.meshGeneration) return
-			const frameStart = performance.now()
-			do {
-				this.renderer.updateStructureBuffers([positions[done++]])
-			} while (done < positions.length && performance.now() - frameStart < FRAME_BUDGET_MS)
-
-			this.requestRender()
-			onProgress?.(done, positions.length)
-			await nextFrame()
-		}
-	}
-
 	// Re-tints and rebuilds the mesh for the current structure using an already-
 	// loaded resource set - no network refetch needed, just a fast local rebuild.
+	// The tint is baked into the mesher's geometry templates, so it needs a fresh
+	// mesher; the atlas and grid are unchanged.
 	setBiome(biome: string): void {
 		this.currentBiome = biome
 		applyBiomeTint(biome)
 		const generation = ++this.meshGeneration
-		this.renderer = new StructureRenderer(
-			this.gl, new Structure(this.structure.size), this.resources, { chunkSize: SLICE_SIZE })
+		this.mesher.dispose()
+		this.mesher = new ChunkMesher(this.gl, this.structure, this.resources, SLICE_SIZE)
+		void this.meshInSlices(this.mesher, generation)
+	}
+
+	/**
+	 * Meshes the structure a few slices per frame.
+	 *
+	 * The total work is unchanged - this is the same geometry either way - but it
+	 * is spread across frames so the window keeps responding and the preview
+	 * visibly fills in.
+	 */
+	private async meshInSlices(
+		mesher: ChunkMesher,
+		generation: number,
+		onProgress?: (done: number, total: number) => void,
+	): Promise<void> {
+		const total = mesher.sliceCount
+		let done = 0
+		while (done < total) {
+			// A newer structure has superseded this one. The mesher it was
+			// building is already this.mesher's predecessor and will be disposed
+			// by whoever replaced it.
+			if (generation !== this.meshGeneration) return
+			// Work to a time budget rather than a fixed slice count: slices vary
+			// enormously in cost (solid rock versus open air), so a fixed batch
+			// either wastes frames on empty ones or overruns on dense ones.
+			const frameStart = performance.now()
+			do {
+				mesher.meshSlice(done++)
+			} while (done < total && performance.now() - frameStart < FRAME_BUDGET_MS)
+
+			this.requestRender()
+			onProgress?.(done, total)
+			await nextFrame()
+		}
+	}
+
+	/**
+	 * Repoints the existing renderer at a new structure's size and resources.
+	 *
+	 * Constructing a fresh StructureRenderer per reload - which is what this
+	 * replaced - recompiled both shader programs every time and leaked the
+	 * previous one's atlas texture, grid buffers and programs, so GPU memory grew
+	 * with every regenerate. Only two things actually depend on the new
+	 * structure: the atlas texture and the bounding grid.
+	 */
+	private refreshRenderer(built: BuiltStructure, resources: AssetResources): void {
+		const internals = this.renderer as unknown as RendererInternals
+		internals.structure = new Structure(built.size)
+		internals.resources = resources
+
+		this.gl.deleteTexture(internals.atlasTexture)
+		internals.atlasTexture = internals.createAtlasTexture(resources.getTextureAtlas())
 		this.fixAtlasFiltering()
-		adoptStructure(this.renderer, this.structure.structure)
-		void this.meshInSlices(this.structure.size, generation)
+
+		disposeMesh(this.gl, internals.gridMesh)
+		internals.gridMesh = internals.getGridMesh()
 	}
 
 	// deepslate's StructureRenderer mipmaps the atlas texture but only ever sets
@@ -248,10 +278,7 @@ export class TreePreview {
 	// mip. Forcing NEAREST (no mipmapping) means only mip level 0 - the exact
 	// atlas pixels - is ever sampled, matching the already-NEAREST mag filter.
 	private fixAtlasFiltering(): void {
-		// atlasTexture is marked `private` in deepslate's .d.ts (API-surface
-		// hiding only - it's a plain assigned field at runtime, not a real JS
-		// #private, so this cast just reaches past the type declaration).
-		const texture = (this.renderer as unknown as { atlasTexture: WebGLTexture }).atlasTexture
+		const texture = (this.renderer as unknown as RendererInternals).atlasTexture
 		this.gl.bindTexture(this.gl.TEXTURE_2D, texture)
 		this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST)
 	}
@@ -281,8 +308,6 @@ export class TreePreview {
 		mat4.translate(view, view, [-this.center[0], -this.center[1], -this.center[2]])
 		return view
 	}
-
-	private meshGeneration = 0
 
 	private requestRender(): void {
 		requestAnimationFrame(() => this.draw())
@@ -314,48 +339,42 @@ export class TreePreview {
 	 * they are drawn, but nothing disappears.
 	 */
 	private drawStructureInPasses(view: mat4): void {
-		// deepslate marks these protected (subclass-only API surface) rather
-		// than truly private; this class composes a renderer instead of
-		// extending one, so it reaches past the declaration the same way the
-		// rest of this file does.
-		const internals = this.renderer as unknown as {
-			shaderProgram: WebGLProgram
-			setShader(shader: WebGLProgram): void
-			setTexture(texture: WebGLTexture, pixelSize?: number): void
-			prepareDraw(view: mat4): void
-			drawMesh(mesh: DeepslateMesh, options: Record<string, boolean>): void
-			atlasTexture: WebGLTexture
-			resources: { getPixelSize?(): number }
-			// ChunkBuilder keeps one opaque and one see-through mesh per chunk.
-			// Its public getMeshes() flattens both into a single list with no
-			// way to tell them apart, which is exactly the distinction this
-			// needs - hence reading the chunk grid rather than calling it.
-			chunkBuilder: { chunks: ChunkMeshes[][][] }
-		}
-
+		const internals = this.renderer as unknown as RendererInternals
 		internals.setShader(internals.shaderProgram)
-		internals.setTexture(internals.atlasTexture, internals.resources.getPixelSize?.())
+		internals.setTexture(internals.atlasTexture, this.resources.getPixelSize())
 		internals.prepareDraw(view)
 
 		const options = { pos: true, color: true, texture: true, normal: true }
-		const chunks: ChunkMeshes[] = []
-		for (const x of internals.chunkBuilder.chunks ?? []) {
-			for (const y of x ?? []) {
-				for (const chunk of y ?? []) {
-					if (chunk) chunks.push(chunk)
-				}
-			}
-		}
+		const groups: SliceGroup[] = this.mesher.groups
 
-		for (const chunk of chunks) {
-			if (!chunk.mesh.isEmpty()) internals.drawMesh(chunk.mesh, options)
+		for (const group of groups) {
+			for (const mesh of group.opaque) internals.drawMesh(mesh, options)
 		}
 
 		this.gl.depthMask(false)
-		for (const chunk of chunks) {
-			if (!chunk.transparentMesh.isEmpty()) internals.drawMesh(chunk.transparentMesh, options)
+		for (const group of groups) {
+			for (const mesh of group.transparent) internals.drawMesh(mesh, options)
 		}
 		this.gl.depthMask(true)
+
+		this.disableStructureAttribs(internals.shaderProgram)
+	}
+
+	/**
+	 * Leaves no vertex attribute array pointing at this frame's slice buffers.
+	 *
+	 * enableVertexAttribArray state is global, not per-program, and outlives the
+	 * draw call that set it. When a reload frees the previous structure's buffers
+	 * those arrays are left referencing deleted objects, and the next draw - the
+	 * grid, which runs first and does not touch these locations - fails with
+	 * GL_INVALID_OPERATION. The old code never hit this only because it leaked
+	 * the buffers instead of deleting them.
+	 */
+	private disableStructureAttribs(program: WebGLProgram): void {
+		for (const name of ['vertPos', 'vertColor', 'texCoord', 'texLimit', 'normal']) {
+			const location = this.gl.getAttribLocation(program, name)
+			if (location >= 0) this.gl.disableVertexAttribArray(location)
+		}
 	}
 
 	// World-space right/up vectors for the current orbit orientation, used to

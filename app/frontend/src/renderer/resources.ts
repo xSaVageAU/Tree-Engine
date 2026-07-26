@@ -139,14 +139,19 @@ async function buildAtlas(blobs: Record<string, Blob>): Promise<TextureAtlas> {
 	ctx.fillRect(0, 0, 8, 8)
 	ctx.fillRect(8, 8, 8, 8)
 
+	// Decode every texture up front instead of one per loop iteration:
+	// createImageBitmap is asynchronous and off-thread, so awaiting them one at a
+	// time serialised work the browser is happy to overlap.
+	const bitmaps = await Promise.all(ids.map((id) => createImageBitmap(blobs[id])))
+
 	const idMap: Record<string, UV> = {}
 	let index = 1
-	for (const id of ids) {
+	for (const [i, id] of ids.entries()) {
 		const u = index % width
 		const v = Math.floor(index / width)
 		index += 1
 		idMap[id] = [part * u, part * v, part * u + part, part * v + part]
-		const img = await createImageBitmap(blobs[id])
+		const img = bitmaps[i]
 		// Sample the WHOLE source texture (whatever its native resolution -
 		// vanilla is 16x16, but resource packs are commonly 32x32 up to 128x128
 		// or higher) and scale it down into this atlas cell. The atlas itself
@@ -171,7 +176,6 @@ export const rendererDiagnostics: {
 	textureIdsWanted: string[]
 	resolvedTextureRefs: Record<string, string>
 	atlasIdMapKeys: string[]
-	uvQueries: string[]
 } = {
 	missingModels: [],
 	failedTextures: [],
@@ -180,7 +184,6 @@ export const rendererDiagnostics: {
 	textureIdsWanted: [],
 	resolvedTextureRefs: {},
 	atlasIdMapKeys: [],
-	uvQueries: [],
 }
 
 export class AssetResources implements Resources {
@@ -198,10 +201,11 @@ export class AssetResources implements Resources {
 		return this.models.get(id.toString()) ?? null
 	}
 
+	// Hot path: called for every face of every baked block template. It used to
+	// format and push a trace string per call, which on a chunk-sized preview was
+	// six figures of string allocation into an array that was never bounded.
 	getTextureUV(id: Identifier): UV {
-		const uv = this.atlas.getTextureUV(id)
-		rendererDiagnostics.uvQueries.push(`${id.toString()} -> [${uv.map((n) => n.toFixed(3)).join(',')}]`)
-		return uv
+		return this.atlas.getTextureUV(id)
 	}
 
 	getTextureAtlas(): ImageData {
@@ -326,11 +330,11 @@ export class AssetResources implements Resources {
 				}
 			}
 		}
-		console.log('[renderer] models loaded:', [...models.keys()])
+		// Only failures are logged. The full resolved lists live in
+		// rendererDiagnostics for the diagnostics panel to read on demand -
+		// dumping them to the console on every load made devtools retain and
+		// render hundreds of entries per regenerate for nobody's benefit.
 		if (missingModels.length) console.warn('[renderer] models MISSING:', missingModels)
-		console.log('[renderer] textures referenced:', [...textureIds])
-		console.log('[renderer] textures loaded:', Object.keys(blobs))
-		console.log('[renderer] resolved texture refs per model:', resolvedTextureRefs)
 		if (failedTextures.length) console.warn('[renderer] textures FAILED:', failedTextures)
 		rendererDiagnostics.missingModels = missingModels
 		rendererDiagnostics.failedTextures = failedTextures
@@ -347,8 +351,6 @@ export class AssetResources implements Resources {
 		// matches our `blobs` keys (TS `private` is erased at runtime, so this is
 		// legitimate introspection, not a hack around real encapsulation).
 		rendererDiagnostics.atlasIdMapKeys = Object.keys((atlas as any).idMap ?? {})
-		rendererDiagnostics.uvQueries = []
-		console.log('[renderer] atlas idMap keys:', rendererDiagnostics.atlasIdMapKeys)
 
 		return new AssetResources(definitions, models, atlas)
 	}
