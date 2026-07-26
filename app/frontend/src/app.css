@@ -1,0 +1,679 @@
+/* ==========================================================================
+   Tree Engine - design system
+   --------------------------------------------------------------------------
+   "Forest workshop": a warm near-black base with a green undertone, moss as
+   the single load-bearing accent and amber/rust reserved for transient state.
+   Everything below is global on purpose - Svelte scopes component styles, so
+   shared primitives (buttons, fields, modals, panels) have to live here.
+   ========================================================================== */
+
+:root {
+	/* --- Surfaces (darkest -> lightest) --- */
+	--bg-sunken: #090b0a; /* viewport, log panes, field wells */
+	--bg: #0f1210; /* app canvas */
+	--panel: #151916; /* sidebars, bars, modal chrome */
+	--raised: #1c211d; /* cards, hover states */
+	--raised-hi: #232922; /* pressed / active chips */
+
+	/* --- Lines --- */
+	--line: #242a25;
+	--line-strong: #333a33;
+	--hairline: rgba(255, 255, 255, 0.05);
+
+	/* --- Ink --- */
+	--text: #e9eee7;
+	--text-dim: #98a597;
+	--text-faint: #6a766b;
+
+	/* --- Accent: moss --- */
+	--accent: #8bc53f;
+	--accent-hi: #a4dc5b;
+	--accent-lo: #5c8a2a;
+	--accent-ink: #0d1a05;
+	--accent-wash: rgba(139, 197, 63, 0.12);
+	--accent-line: rgba(139, 197, 63, 0.32);
+
+	/* --- State --- */
+	--amber: #e3a83f;
+	--amber-wash: rgba(227, 168, 63, 0.13);
+	--danger: #e2664a;
+	--danger-wash: rgba(226, 102, 74, 0.13);
+
+	/* --- Elevation --- */
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+	--shadow-md: 0 10px 28px -12px rgba(0, 0, 0, 0.75);
+	--shadow-lg: 0 32px 70px -20px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.4);
+	--ring: 0 0 0 3px rgba(139, 197, 63, 0.22);
+	--inset-hi: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+	/* --- Radii --- */
+	--r-xs: 4px;
+	--r-sm: 6px;
+	--r-md: 9px;
+	--r-lg: 14px;
+	--r-full: 999px;
+
+	/* --- Type --- */
+	--font-sans: "Segoe UI Variable Text", "Segoe UI", Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+	--font-display: "Segoe UI Variable Display", "Segoe UI Semibold", "Segoe UI", Inter, system-ui, sans-serif;
+	--font-mono: "Cascadia Mono", "Cascadia Code", "JetBrains Mono", "SF Mono", Consolas, ui-monospace, monospace;
+
+	/* --- Motion --- */
+	--ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+	--fast: 120ms var(--ease);
+	--med: 200ms var(--ease);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+#app {
+	height: 100vh;
+	width: 100vw;
+	overflow: hidden;
+	position: relative;
+	isolation: isolate;
+}
+
+/* --------------------------------------------------------------------------
+   Typography primitives
+   -------------------------------------------------------------------------- */
+
+h1,
+h2,
+h3,
+h4 {
+	font-family: var(--font-display);
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	margin: 0;
+}
+
+/* Small caps section marker - the main structural cue in this UI. */
+.eyebrow {
+	font-size: 10.5px;
+	font-weight: 700;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--text-faint);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.mono {
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	letter-spacing: -0.01em;
+	font-variant-ligatures: none;
+}
+
+.count-badge {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	font-weight: 600;
+	color: var(--text-faint);
+	background: var(--raised);
+	border: 1px solid var(--line);
+	border-radius: var(--r-full);
+	padding: 1px 7px;
+	letter-spacing: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Buttons
+   -------------------------------------------------------------------------- */
+
+.btn {
+	--btn-bg: linear-gradient(180deg, var(--accent-hi), var(--accent));
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	background: var(--btn-bg);
+	color: var(--accent-ink);
+	border: none;
+	border-radius: var(--r-sm);
+	padding: 9px 14px;
+	font-family: var(--font-sans);
+	font-size: 12.5px;
+	font-weight: 650;
+	letter-spacing: 0.01em;
+	line-height: 1;
+	cursor: pointer;
+	white-space: nowrap;
+	box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+	transition: filter var(--fast), transform var(--fast), box-shadow var(--fast), background var(--fast),
+		border-color var(--fast), color var(--fast);
+}
+
+.btn:hover:not(:disabled) {
+	filter: brightness(1.08);
+}
+
+.btn:active:not(:disabled) {
+	transform: translateY(1px);
+	filter: brightness(0.95);
+}
+
+.btn:focus-visible {
+	outline: none;
+	box-shadow: var(--ring), var(--shadow-sm);
+}
+
+.btn:disabled {
+	opacity: 0.38;
+	cursor: not-allowed;
+	box-shadow: none;
+	filter: grayscale(0.35);
+}
+
+/* Ghost - the default for anything that isn't the one primary action. */
+.btn.secondary {
+	background: var(--raised);
+	color: var(--text-dim);
+	border: 1px solid var(--line);
+	box-shadow: var(--inset-hi);
+}
+
+.btn.secondary:hover:not(:disabled) {
+	background: var(--raised-hi);
+	border-color: var(--line-strong);
+	color: var(--text);
+	filter: none;
+}
+
+.btn.ghost {
+	background: transparent;
+	color: var(--text-dim);
+	border: 1px solid transparent;
+	box-shadow: none;
+}
+
+.btn.ghost:hover:not(:disabled) {
+	background: var(--raised);
+	color: var(--text);
+	filter: none;
+}
+
+.btn.danger {
+	background: transparent;
+	color: var(--danger);
+	border: 1px solid rgba(226, 102, 74, 0.32);
+	box-shadow: none;
+}
+
+.btn.danger:hover:not(:disabled) {
+	background: var(--danger-wash);
+	border-color: var(--danger);
+	filter: none;
+}
+
+.btn-sm {
+	padding: 6px 10px;
+	font-size: 11.5px;
+	gap: 6px;
+}
+
+.btn-lg {
+	padding: 12px 20px;
+	font-size: 13.5px;
+	border-radius: var(--r-md);
+}
+
+.btn.full {
+	width: 100%;
+}
+
+/* Square icon-only button, used across the topbar and panel headers. */
+.icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	background: transparent;
+	color: var(--text-dim);
+	border: 1px solid transparent;
+	border-radius: var(--r-sm);
+	cursor: pointer;
+	transition: background var(--fast), color var(--fast), border-color var(--fast);
+}
+
+.icon-btn:hover:not(:disabled) {
+	background: var(--raised);
+	border-color: var(--line);
+	color: var(--text);
+}
+
+.icon-btn:focus-visible {
+	outline: none;
+	box-shadow: var(--ring);
+}
+
+.icon-btn:disabled {
+	opacity: 0.35;
+	cursor: not-allowed;
+}
+
+.icon-btn.danger:hover:not(:disabled) {
+	background: var(--danger-wash);
+	border-color: rgba(226, 102, 74, 0.32);
+	color: var(--danger);
+}
+
+/* --------------------------------------------------------------------------
+   Fields
+   -------------------------------------------------------------------------- */
+
+input[type="text"],
+input[type="search"],
+input[type="number"],
+select,
+textarea {
+	background: var(--bg-sunken);
+	border: 1px solid var(--line);
+	color: var(--text);
+	border-radius: var(--r-sm);
+	padding: 8px 11px;
+	font-family: var(--font-sans);
+	font-size: 12.5px;
+	width: 100%;
+	transition: border-color var(--fast), box-shadow var(--fast), background var(--fast);
+}
+
+input::placeholder {
+	color: var(--text-faint);
+}
+
+input[type="text"]:hover,
+input[type="search"]:hover,
+input[type="number"]:hover,
+select:hover {
+	border-color: var(--line-strong);
+}
+
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+	outline: none;
+	border-color: var(--accent-line);
+	box-shadow: var(--ring);
+	background: var(--bg);
+}
+
+/* Native select chrome is the single biggest "unstyled app" tell - replace it. */
+select {
+	appearance: none;
+	-webkit-appearance: none;
+	padding-right: 30px;
+	cursor: pointer;
+	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2398a597' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 8px center;
+}
+
+select option {
+	background: var(--panel);
+	color: var(--text);
+}
+
+input[type="search"] {
+	-webkit-appearance: none;
+}
+
+input[type="search"]::-webkit-search-cancel-button {
+	-webkit-appearance: none;
+	height: 12px;
+	width: 12px;
+	cursor: pointer;
+	background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236a766b' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E");
+	background-size: contain;
+}
+
+/* Search field with a leading icon (the icon is positioned by the wrapper). */
+.field-search {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+
+.field-search > svg {
+	position: absolute;
+	left: 10px;
+	color: var(--text-faint);
+	pointer-events: none;
+}
+
+.field-search input {
+	padding-left: 31px;
+}
+
+.field-label {
+	font-size: 10.5px;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--text-faint);
+}
+
+.field-hint {
+	font-size: 11.5px;
+	color: var(--text-faint);
+	line-height: 1.45;
+	margin: 0;
+}
+
+/* Custom checkbox - drawn from scratch so it matches the accent. */
+input[type="checkbox"] {
+	appearance: none;
+	-webkit-appearance: none;
+	width: 17px;
+	height: 17px;
+	flex-shrink: 0;
+	margin: 0;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--r-xs);
+	background: var(--bg-sunken);
+	cursor: pointer;
+	position: relative;
+	transition: background var(--fast), border-color var(--fast), box-shadow var(--fast);
+}
+
+input[type="checkbox"]:hover:not(:disabled) {
+	border-color: var(--accent-line);
+}
+
+input[type="checkbox"]:checked {
+	background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+	border-color: var(--accent);
+}
+
+input[type="checkbox"]:checked::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230d1a05' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5 10 17.5 19 6.5'/%3E%3C/svg%3E")
+		center / 12px no-repeat;
+}
+
+input[type="checkbox"]:focus-visible {
+	outline: none;
+	box-shadow: var(--ring);
+}
+
+input[type="checkbox"]:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Status pill
+   -------------------------------------------------------------------------- */
+
+.status-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	padding: 4px 11px 4px 9px;
+	border-radius: var(--r-full);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	border: 1px solid transparent;
+	white-space: nowrap;
+}
+
+.status-pill.stopped {
+	background: rgba(152, 165, 151, 0.08);
+	border-color: var(--line);
+	color: var(--text-dim);
+}
+.status-pill.starting {
+	background: var(--amber-wash);
+	border-color: rgba(227, 168, 63, 0.3);
+	color: var(--amber);
+}
+.status-pill.running {
+	background: var(--accent-wash);
+	border-color: var(--accent-line);
+	color: var(--accent-hi);
+}
+.status-pill.error {
+	background: var(--danger-wash);
+	border-color: rgba(226, 102, 74, 0.3);
+	color: var(--danger);
+}
+
+.status-pill .dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+	flex-shrink: 0;
+}
+
+/* Halo only while something is in flight, so motion means something. */
+.status-pill.running .dot,
+.status-pill.starting .dot {
+	animation: pulse-dot 2s var(--ease) infinite;
+}
+
+@keyframes pulse-dot {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 currentColor;
+		opacity: 1;
+	}
+	50% {
+		box-shadow: 0 0 0 4px transparent;
+		opacity: 0.55;
+	}
+}
+
+/* --------------------------------------------------------------------------
+   Modals
+   -------------------------------------------------------------------------- */
+
+.modal-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba(5, 7, 6, 0.66);
+	backdrop-filter: blur(6px) saturate(0.85);
+	-webkit-backdrop-filter: blur(6px) saturate(0.85);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 2000;
+	animation: fade-in 140ms var(--ease);
+}
+
+.modal {
+	background: var(--panel);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--r-lg);
+	box-shadow: var(--shadow-lg);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	max-height: 86vh;
+	animation: modal-in 180ms var(--ease);
+}
+
+.modal-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 14px 16px;
+	border-bottom: 1px solid var(--line);
+	background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
+	flex-shrink: 0;
+}
+
+.modal-title {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	font-family: var(--font-display);
+	font-size: 13.5px;
+	font-weight: 650;
+	color: var(--text);
+}
+
+.modal-title > svg {
+	color: var(--accent);
+}
+
+.modal-body {
+	padding: 16px;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-height: 0;
+}
+
+.modal-foot {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	align-items: center;
+	padding: 12px 16px;
+	border-top: 1px solid var(--line);
+	background: rgba(0, 0, 0, 0.18);
+	flex-shrink: 0;
+}
+
+@keyframes fade-in {
+	from {
+		opacity: 0;
+	}
+}
+
+@keyframes modal-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.985);
+	}
+}
+
+/* --------------------------------------------------------------------------
+   Misc shared surfaces
+   -------------------------------------------------------------------------- */
+
+.log-pane {
+	flex: 1;
+	background: var(--bg-sunken);
+	padding: 14px 16px;
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	line-height: 1.65;
+	color: var(--text-dim);
+	overflow-y: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.callout {
+	display: flex;
+	gap: 10px;
+	align-items: flex-start;
+	border-radius: var(--r-sm);
+	padding: 10px 12px;
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+.callout.error {
+	background: var(--danger-wash);
+	border: 1px solid rgba(226, 102, 74, 0.3);
+	color: var(--danger);
+	white-space: pre-wrap;
+}
+
+.callout.ok {
+	background: var(--accent-wash);
+	border: 1px solid var(--accent-line);
+	color: var(--accent-hi);
+}
+
+.divider {
+	border: 0;
+	border-top: 1px solid var(--line);
+	margin: 0;
+}
+
+.empty-state {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	text-align: center;
+	padding: 32px 24px;
+	color: var(--text-faint);
+}
+
+.empty-state > svg {
+	color: var(--line-strong);
+}
+
+.empty-state .empty-title {
+	font-family: var(--font-display);
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--text-dim);
+}
+
+.empty-state .empty-copy {
+	font-size: 12px;
+	line-height: 1.5;
+	max-width: 30ch;
+}
+
+/* --------------------------------------------------------------------------
+   Scrollbars
+   -------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--line-strong);
+	border-radius: var(--r-full);
+	border: 3px solid transparent;
+	background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #46503f;
+	background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	::before,
+	::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}

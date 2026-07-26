@@ -1,0 +1,228 @@
+// Datapack import support.
+//
+// An imported datapack is installed into the server world's datapacks folder,
+// which is where vanilla loads them from. That placement matters for more
+// than the running world: the backend layers a preview session on top of
+// server.getResourceManager().listPacks(), so anything installed here shows
+// up in the feature list and in previews alongside the user's own trees.
+//
+// Installing does not take effect immediately. Minecraft only reads worldgen
+// registries (configured_feature, placed_feature, biome) when a world loads,
+// unlike tags or loot tables which /reload can refresh live, so the server
+// needs a restart to pick up newly installed packs.
+package instance
+
+import (
+	"archive/zip"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// DatapacksDir is the server world's datapacks folder - the location vanilla
+// itself scans, so no mod-side pack provider is needed to load them.
+func (l Layout) DatapacksDir() string {
+	return filepath.Join(l.InstanceDir, "world", "datapacks")
+}
+
+// InstallDatapackZip extracts a datapack zip into a uniquely-named folder
+// under DatapacksDir and returns that folder's name.
+func (l Layout) InstallDatapackZip(zipPath string) (string, error) {
+	name := uniqueDatapackName(l, strings.TrimSuffix(filepath.Base(zipPath), filepath.Ext(zipPath)))
+	dest := filepath.Join(l.DatapacksDir(), name)
+
+	if err := extractDatapackZip(zipPath, dest); err != nil {
+		os.RemoveAll(dest)
+		return "", err
+	}
+	if err := flattenAndValidateDatapack(dest); err != nil {
+		os.RemoveAll(dest)
+		return "", err
+	}
+	return name, nil
+}
+
+// InstallDatapackFolder copies an existing unzipped datapack folder into a
+// uniquely-named folder under DatapacksDir and returns that folder's name.
+func (l Layout) InstallDatapackFolder(folderPath string) (string, error) {
+	name := uniqueDatapackName(l, filepath.Base(folderPath))
+	dest := filepath.Join(l.DatapacksDir(), name)
+
+	if err := copyDir(folderPath, dest); err != nil {
+		os.RemoveAll(dest)
+		return "", err
+	}
+	if err := flattenAndValidateDatapack(dest); err != nil {
+		os.RemoveAll(dest)
+		return "", err
+	}
+	return name, nil
+}
+
+func uniqueDatapackName(l Layout, base string) string {
+	base = sanitizeDatapackName(base)
+	name := base
+	for i := 2; ; i++ {
+		if _, err := os.Stat(filepath.Join(l.DatapacksDir(), name)); os.IsNotExist(err) {
+			return name
+		}
+		name = fmt.Sprintf("%s_%d", base, i)
+	}
+}
+
+func sanitizeDatapackName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "datapack"
+	}
+	return b.String()
+}
+
+func extractDatapackZip(zipPath, destDir string) error {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("failed to open zip: %w", err)
+	}
+	defer zr.Close()
+
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+
+	for _, f := range zr.File {
+		target, err := safeJoin(destDir, f.Name)
+		if err != nil {
+			return err
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := extractZipEntry(f, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// safeJoin guards against zip-slip: the resulting path must stay within destDir.
+func safeJoin(destDir, name string) (string, error) {
+	target := filepath.Join(destDir, name)
+	clean := filepath.Clean(target)
+	if !strings.HasPrefix(clean, filepath.Clean(destDir)+string(os.PathSeparator)) {
+		return "", fmt.Errorf("refusing to extract suspicious path: %s", name)
+	}
+	return clean, nil
+}
+
+func extractZipEntry(f *zip.File, target string) error {
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	out, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, rc); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// flattenAndValidateDatapack handles the common case of a datapack zip/folder
+// wrapping everything in one extra top-level folder, so data/ ends up
+// directly under dest. Errors out if it still isn't a valid datapack - a pack
+// without data/ at its root is silently ignored by Minecraft, which is a
+// worse outcome than refusing the import.
+func flattenAndValidateDatapack(dest string) error {
+	if hasDataDir(dest) {
+		return nil
+	}
+	entries, err := os.ReadDir(dest)
+	if err != nil {
+		return err
+	}
+	var dirs []os.DirEntry
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, e)
+		}
+	}
+	if len(dirs) == 1 {
+		nested := filepath.Join(dest, dirs[0].Name())
+		if hasDataDir(nested) {
+			return flattenInto(nested, dest)
+		}
+	}
+	return fmt.Errorf("not a valid datapack: no data/ folder found")
+}
+
+func hasDataDir(path string) bool {
+	info, err := os.Stat(filepath.Join(path, "data"))
+	return err == nil && info.IsDir()
+}
+
+func flattenInto(nested, dest string) error {
+	entries, err := os.ReadDir(nested)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if err := os.Rename(filepath.Join(nested, e.Name()), filepath.Join(dest, e.Name())); err != nil {
+			return err
+		}
+	}
+	return os.Remove(nested)
+}
+
+// copyDir recursively copies an existing datapack folder into dest.
+func copyDir(src, dest string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.Create(target)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return err
+		}
+		return out.Close()
+	})
+}

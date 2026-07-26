@@ -1,13 +1,12 @@
-# Automatically build the project and run any configured tests for every push
-# and submitted pull request. This can help catch issues that only occur on
-# certain platforms or Java versions, and provides a first line of defence
-# against bad commits.
+# Builds both halves of the project on every push and pull request: the Java
+# backend mod and the Go/Svelte desktop app. Catches platform- and
+# version-specific breakage before it lands.
 
 name: build
 on: [pull_request, push]
 
 jobs:
-  build:
+  backend:
     runs-on: ubuntu-24.04
     steps:
       - name: checkout repository
@@ -17,14 +16,48 @@ jobs:
       - name: setup jdk
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'microsoft'
+          # Minecraft 26.2 targets Java 25; the backend compiles with release 25.
+          java-version: '25'
+          distribution: 'temurin'
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+        working-directory: backend
       - name: build
         run: ./gradlew build
+        working-directory: backend
       - name: capture build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Artifacts
-          path: build/libs/
+          name: backend-jar
+          path: backend/build/libs/
+
+  app:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+      - name: setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+      - name: install frontend dependencies
+        run: npm ci
+        working-directory: app/frontend
+      - name: typecheck frontend
+        run: npx svelte-check --threshold error
+        working-directory: app/frontend
+      - name: build frontend
+        run: npx vite build
+        working-directory: app/frontend
+      - name: vet go
+        run: go vet ./...
+        working-directory: app
+      - name: build go
+        run: go build ./...
+        working-directory: app

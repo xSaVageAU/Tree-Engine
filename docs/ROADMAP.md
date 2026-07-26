@@ -1,51 +1,66 @@
-# Tree Engine 2.0 - Project Roadmap
+# Roadmap
 
-## 1. Project Status
-**Current State:** Proof of Concept / Alpha
-The project is currently a functional prototype with a Java-based backend (Fabric Mod) and a Vanilla JavaScript web editor. It demonstrates the core capability of editing Minecraft tree features via a web interface and hot-reloading them in-game.
+## Where things stand
 
-## 2. Current Accomplishments (Features)
-### Backend (Java/Fabric)
+The backend was rewritten from scratch for Minecraft 26.2 as a stateless
+generation service. Both preview modes work and are verified against a running
+server. The desktop app builds and typechecks against the new API.
 
-- [x] **Datapack-First Architecture**: Trees are stored as standard Minecraft datapacks in `config/tree_engine/datapacks`.
-- [x] **Web Server Integration**: Embedded HTTP server to serve the editor and handle API requests.
-- [x] **Tree Replacer System**: Logic to replace vanilla trees with custom configured trees at runtime.
-- [x] **PhantomWorld**: A fake world object that is used to generate trees in.
-- [x] **Hot Reloading**: Basic support for reloading tree configurations without restarting the game.
-- [x] **Texture Pack Support**: API to list and serve texture packs for the frontend.
-- [x] **Performance Profiler**: Measure and display performance metrics for tree generation.
-- [x] **Multi-Version Support**: Supporting multiple Minecraft versions simultaneously (`1.21.2` -> `1.21.10`).
+**Not yet exercised end to end.** The full flow — first-run setup, server boot,
+open project, edit, preview — has not been run start to finish since the
+rewrite. Expect rough edges in the seams until it has.
 
-### Frontend (Vanilla JS)
+| Capability | State |
+|---|---|
+| Datapack compiled in memory, no disk | working |
+| Single-tree preview | working |
+| Natural chunk preview, datapack applied | working |
+| Registry browsing and feature import | working |
+| Tree + placement editing | working |
+| Tree replacers, as datapack shadowing | working |
+| Benchmark | working |
+| Precise per-file datapack errors | working |
 
-- [x] **Tree Browser**: UI to list and select configured trees.
-- [x] **Visual Preview**: Basic rendering/visualization of tree structures (3D).
-- [x] **Import/Export**: Ability to import vanilla trees and save modifications.
-- [x] **Texture Pack Selector**: Dropdown to switch between available resource packs for preview.
-- [x] **Monaco Editor**: Basic Monaco editor integration for JSON editing.
-- [x] **JSON editing for ConfiguredFeatures**: Allow editing of ConfiguredFeatures directly in the frontend.
+## Next
 
-## 3. Immediate Roadmap (Polish & Fixes)
-*Goal: Stabilize the current PoC before major rewrites.*
-- [ ] **Code Cleanup**: Remove unused code and ensure strict separation of concerns.
-- [ ] **UI/UX Polish**: Improve error messages, loading states, and layout.
-- [ ] **Modded Tree Shadowing**: Allow saving imported modded trees as a "shadow", which takes priority over the original pack's tree and replaces it. 
-- [ ] **JSON editing for PlacedFeatures**: Allow editing of PlacedFeatures directly in the frontend.
-- [ ] **Finish renderer**: Support all block types and features.
+**Chunk preview performance.** The World Preview tab works, but a 3×3 area is
+~34k blocks against ~2k for one chunk, and the renderer meshes all of it on the
+main thread. One chunk is comfortable; the larger area is noticeably slower.
+Worth revisiting if the bigger view gets used in anger.
 
+**Direct overwrites.** Replacers already prove the shadowing mechanism: write a
+configured feature under another namespace and Minecraft loads yours instead.
+The remaining step is editing a vanilla or modded tree *directly* — saving an
+edited `minecraft:oak` as itself rather than as a selector pool. Most of the
+work is done; what is missing is accepting a namespaced id in the save path
+(and skipping placed-feature generation for it, since the original's placement
+rules already point at the shadowed id) plus the UI to start such an edit.
 
-## 4. Future Roadmap (Major Refactors)
-*Goal: Modernize the stack and expand capabilities.*
-- [ ] **Dynamic Form Editor**: Include a from editor similar to or using Misode's form editor.
+**Structures in natural previews.** Currently disabled for boot time, so a
+chunk containing a village previews without it. Worth revisiting once the chunk
+view exists and the cost can be measured rather than guessed.
 
-### Frontend Rewrite
-*goal: modernize the frontend stack. Make it easier to maintain and expand.*
-*To Be Decided*
+## Considered and parked
 
-### Advanced Features
-- [ ] **Biome Integration**: Visual biome selector to assign tree generation to specific biomes easily.
-- [ ] **Performance Optimization**: Optimize the web server for handling large datapacks.
+**Schema-driven form editor.** A form UI as an alternative to raw JSON.
+Investigated previously: no library covers this. Misode's `@mcschema/core` is
+years stale and its actual Minecraft schema *definitions* were never published
+reusably. Doing it well means a purpose-built form for `TreeConfiguration` and
+friends. It must not mean hand-writing a JSON schema — those go stale silently
+between Minecraft versions, which is the failure this project already avoids by
+reading configs from the live registry.
 
-## 5. Out of Scope / Ideas (Backlog)
-- **In-Game 3D Editor**: Fully interactive in-game GUI (likely out of scope due to complexity vs Web UI).
-- **Wails Standalone Version**: A version of the editor that can be run as a standalone application. Would require a fabric server wrapper.
+**Resource pack overlay.** Layering a custom pack's textures over vanilla in
+the preview. Attempted and reverted: higher-resolution packs (64×, 128×) did
+not scale into the atlas correctly, and it created more friction than value.
+Vanilla-only rendering is the baseline; worth retrying given real demand.
+
+**Multi-version support.** The backend targets one Minecraft version at a time.
+Supporting several simultaneously means a jar per version and a resolver in the
+launcher. Worth doing only if there is real demand for versions behind current.
+
+## Out of scope
+
+**In-game editing.** An interactive GUI inside Minecraft. The desktop app is
+the editor, and the backend has deliberately been stripped of all in-game
+presence to keep it simple.

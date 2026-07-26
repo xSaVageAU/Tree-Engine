@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "tree-engine-backend",
+	"version": "${version}",
+	"name": "Tree Engine Backend",
+	"description": "Headless generation service for the Tree Engine desktop app. Compiles datapacks in memory and returns preview geometry over a loopback HTTP API. Has no in-game presence.",
+	"authors": [
+		"xSaVageAU"
+	],
+	"contact": {
+		"sources": "https://github.com/xSaVageAU/Tree-Engine"
+	},
+	"license": "MIT",
+	"icon": "assets/tree-engine-backend/icon.png",
+	"environment": "server",
+	"entrypoints": {
+		"main": [
+			"savage.tree_engine.TreeEngineBackend"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

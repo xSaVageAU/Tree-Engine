@@ -1,97 +1,101 @@
 # Tree Engine
 
-![Fabric](https://img.shields.io/badge/Fabric-1.21.10-cream?logo=fabric)
-![License](https://img.shields.io/badge/License-CC0-green)
+![Minecraft](https://img.shields.io/badge/Minecraft-26.2-cream)
+![Fabric](https://img.shields.io/badge/Fabric-0.19.3-cream?logo=fabric)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-**Tree Engine** is a powerful development tool for Minecraft that bridges the gap between in-game world generation and modern web interfaces. It allows you to design, visualize, and implement custom trees and world-generation features in real-time without restarting your server.
+A desktop editor for Minecraft's world-generation trees. You edit the datapack
+JSON; it shows you what actually grows, rendered from a real Minecraft server
+running the real generation code.
 
-Unlike standard JSON editing, Tree Engine provides a **3D Web Editor** that runs the actual Minecraft generation logic in a "Phantom World" simulation, ensuring that what you see in the browser is exactly what will generate in the game.
+The point is that the preview is not an approximation. There is no
+reimplementation of trunk placers or foliage shapes anywhere in this project —
+a headless Minecraft server generates the tree and reports the blocks it
+placed.
 
-https://github.com/user-attachments/assets/dadb7aad-cf3f-4de2-a6cc-ff38f6b9474e
-## Key Features
+## The two halves
 
-*   **🌐 Web-Based Voxel Editor:** A locally hosted web interface (default port 3000) using **Babylon.js** for high-performance 3D rendering.
-*   **🔥 Hot Reloading:** Changes made in the web editor are injected directly into the running game registry using reflection. **No server restarts required.**
-*   **🌲 Tree Replacers:** A built-in system to override vanilla trees (e.g., Oak, Birch, Spruce) with a weighted pool of your own custom tree designs.
-*   **🔮 Phantom World Simulation:** The editor runs `ConfiguredFeature.generate()` in a virtual server world, handling all placement logic, decorators, and block states exactly as the game engine does.
-*   **📦 Datapack-First Architecture:** All creations are saved as standard JSON files in a local datapack (`config/tree_engine/datapacks/`), making them easy to export and share.
-*   **🎨 Texture Pack Support:** Drop resource packs into the config folder to visualize trees with your custom textures in the browser.
-*   **📝 Monaco JSON Editor:** Integrated VS Code-style editor for power users who want fine-grained control over feature configurations.
+**`backend/`** — a Fabric mod that is a generation service, not a game feature.
+It has no commands, no mixins, no GUI, and nobody ever joins it. It boots a
+dedicated server to get a fully loaded registry, then answers HTTP requests:
+*here is a datapack and something to generate, send back the blocks.* It owns
+no files and persists nothing.
 
-## Installation
+**`app/`** — a Go + [Wails](https://wails.io) + Svelte desktop app. It manages
+the server (downloading Java, Fabric and the backend jar as needed), owns your
+project files on disk, and provides the editor and 3D preview.
 
-1.  Install **Fabric Loader** for any Minecraft versions 1.21.2 -> 1.21.10.
-2.  Install **Fabric API**.
-3.  Drop the `tree-engine.jar` into your `mods` folder.
-4.  Launch the game/server.
+## Preview modes
 
-## Getting Started
+**Single tree** *(default)* — one feature, generated in isolation on a
+fabricated soil plane. Answers "what does this config produce", with no terrain
+or neighbours in the way.
 
-### 1. Start the Web Server
-Once in-game or via the server console, run:
-```mcfunction
-/tree_engine web start
+**Natural chunks** — real terrain from the running world, decorated with your
+datapack's features. Answers "what will this look like in game". Reachable in
+the API today; it does not have a UI yet.
+
+The two share no code beyond the block format they both emit. That separation
+is deliberate: the fabricated ground the single-tree mode depends on would make
+natural previews quietly wrong.
+
+## Rendering
+
+The preview uses [deepslate](https://github.com/misode/deepslate), which reads
+real vanilla block models, blockstates and textures, so new block types render
+correctly without per-block code. Those assets are downloaded from Mojang at
+runtime and cached — never bundled, in line with Mojang's redistribution terms.
+
+## Getting started
+
+There is no released binary yet, so this means building from source.
+
+```
+cd app && wails dev
 ```
 
-### 2. Authenticate
-For security, the editor is protected by a token. When you start the web server, look at your **game logs/console**:
-```text
-============================================================
-WEB EDITOR AUTHENTICATION TOKEN:
-a1b2c3d4e5... (your unique token)
-============================================================
-```
-1.  Open your browser to `http://localhost:3000`.
-2.  Paste the token into the "Auth Token" field in the top-left corner and click **Save**.
+That is the whole loop. Every `wails build` and `wails dev` rebuilds the backend
+jar and re-embeds it first, so the mod the app installs is always the one built
+from `backend/`. Changing backend code needs nothing but restarting the app.
+3. Accept the Minecraft EULA in the UI, then **Set Up & Start**. The app
+   downloads Java (if needed), a Fabric server and Fabric API, and installs the
+   backend.
+4. Open a project folder — any folder; it is scaffolded into a datapack if it
+   isn't one already.
+5. **New Tree**, edit the JSON, watch the preview regenerate.
 
-### 3. Create & Visualize
-1.  Click **+ Create New Tree**.
-2.  Adjust parameters using the UI or the JSON editor.
-3.  The 3D preview will automatically regenerate using the game's engine.
-4.  Click **Save Tree** to write the file and hot-reload it into the game.
+Your project is a plain datapack. Copy it into a world's `datapacks/` folder
+and it works, with no part of Tree Engine involved.
 
-## Tree Replacers
+## Tree replacers
 
-Tree Engine allows you to replace vanilla trees without complex biome modification.
+A replacer makes a vanilla tree generate one of yours instead. It works by
+datapack shadowing: Tree Engine writes a `minecraft:random_selector` at, say,
+`data/minecraft/worldgen/configured_feature/oak.json`, and Minecraft loads that
+in place of its own definition.
 
-1.  In the Web Editor, switch to the **Tree Replacers** tab.
-2.  Click **Create New Replacer**.
-3.  Select a vanilla tree target (e.g., `minecraft:oak`).
-4.  Select one or more of your **Custom Trees** to add to the replacement pool.
-5.  Save.
+There is no runtime trickery involved — the result is a file that behaves the
+same in your world as it does in the preview, and deleting it restores vanilla.
 
-*The mod automatically generates a `simple_random_selector` that intercepts the vanilla feature ID, allowing your custom trees to spawn naturally in the world.*
+## Development
 
-## Configuration & Resources
+| | |
+|---|---|
+| Backend | `cd backend && ./gradlew build` — needs JDK 25 |
+| Backend alone | `cd backend && ./gradlew runServer` (needs a config file, see [backend/README.md](backend/README.md)) |
+| App | `cd app && wails dev` for live reload, `wails build` to package |
+| Frontend checks | `cd app/frontend && npx svelte-check` |
+| Re-embed the backend | automatic — a Wails pre-build hook runs `scripts/sync-backend-jar.ps1` on every build |
 
-The mod creates a configuration folder at `config/tree_engine/`:
+Further reading: [backend/README.md](backend/README.md) for the HTTP API,
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and why,
+and [docs/ROADMAP.md](docs/ROADMAP.md) for what is next.
 
-*   **`config.json`**: Change the port, toggle dev mode, or manage auth settings.
-*   **`textures/`**: Drop resource packs (zip or folder) here. Select them in the Web Editor to view your trees with correct textures.
-*   **`datapacks/tree_engine_trees/`**: This is where your actual work is saved. You can copy this folder to any world's `datapacks/` folder to ship your modpack.
+## A note on how this is built
 
-## Commands
-
-| Command | Description |
-| :--- | :--- |
-| `/tree_engine web start` | Starts the web editor server. |
-| `/tree_engine web stop` | Stops the web editor server. |
-| `/tree_engine web status` | Displays the current port and status. |
-| `/tree_engine reload` | Manually hot-reloads all trees and replacers from disk. |
-| `/tree_engine web reload` | Reloads the web server frontend files (for dev mode). |
-
-## Technical Details
-
-*   **Backend:** Java (Fabric) using `com.sun.net.httpserver`.
-*   **Frontend:** Vanilla JS + Babylon.js + Monaco Editor.
-*   **Registry Injection:** Uses `RegistryUtils` to access private fields in `ConfiguredFeature` and `TreeFeatureConfig`, modifying them in-place to allow runtime updates without breaking registry references.
-
-## Development Notice
-
-This project is developed with significant assistance from AI coding tools (Google Gemini). While AI has been instrumental in writing much of the codebase, all code is reviewed, tested, and maintained by the project owner. 
-
-If you encounter any issues or have questions about the project, please feel free to open an issue on GitHub.
+Much of this codebase is written with AI assistance. Everything is reviewed and
+maintained by the project owner. If something looks wrong, please open an issue.
 
 ## License
 
-This project is licensed under **CC0-1.0**.
+MIT.
