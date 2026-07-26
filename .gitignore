@@ -49,4 +49,4 @@ docs/backport-info.md
 # node / wails frontend
 node_modules/
 app/frontend/dist/*
-!app/frontend/dist/gitkeep
+!app/frontend/dist/gitkeepapp/frontend/package.json.md5
