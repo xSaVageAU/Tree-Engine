@@ -51,6 +51,13 @@ const SLICE_SIZE = 4
 // for the browser's own work, so the window stays responsive.
 const FRAME_BUDGET_MS = 10
 
+// A deepslate Mesh, as far as this file needs to care: something with GL
+// buffers that the renderer knows how to draw, and that can be empty.
+type DeepslateMesh = { isEmpty(): boolean }
+
+// One entry of ChunkBuilder's internal chunk grid.
+type ChunkMeshes = { mesh: DeepslateMesh; transparentMesh: DeepslateMesh }
+
 function nextFrame(): Promise<void> {
 	return new Promise((resolve) => requestAnimationFrame(() => resolve()))
 }
@@ -286,7 +293,69 @@ export class TreePreview {
 		this.gl.clearColor(0, 0, 0, 0)
 		this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT)
 		if (this.showGrid) this.renderer.drawGrid(view)
-		this.renderer.drawStructure(view)
+		this.drawStructureInPasses(view)
+	}
+
+	/**
+	 * Draws the structure as an opaque pass followed by a see-through pass that
+	 * does not write depth.
+	 *
+	 * deepslate's own drawStructure() draws both in one go with depth writes
+	 * always on. That is fine for the opaque half but wrong for the other: a
+	 * water quad would write depth, and any block behind it - drawn later
+	 * because the chunks happen to be ordered that way - then failed the depth
+	 * test and vanished outright rather than being blended through. Which
+	 * blocks survived depended on the camera angle, since that is what decides
+	 * the order the chunks are visited in.
+	 *
+	 * Masking depth for the see-through pass makes the result independent of
+	 * that order: transparent geometry can never occlude anything. It still is
+	 * not sorted back-to-front, so two layers of water blend in whatever order
+	 * they are drawn, but nothing disappears.
+	 */
+	private drawStructureInPasses(view: mat4): void {
+		// deepslate marks these protected (subclass-only API surface) rather
+		// than truly private; this class composes a renderer instead of
+		// extending one, so it reaches past the declaration the same way the
+		// rest of this file does.
+		const internals = this.renderer as unknown as {
+			shaderProgram: WebGLProgram
+			setShader(shader: WebGLProgram): void
+			setTexture(texture: WebGLTexture, pixelSize?: number): void
+			prepareDraw(view: mat4): void
+			drawMesh(mesh: DeepslateMesh, options: Record<string, boolean>): void
+			atlasTexture: WebGLTexture
+			resources: { getPixelSize?(): number }
+			// ChunkBuilder keeps one opaque and one see-through mesh per chunk.
+			// Its public getMeshes() flattens both into a single list with no
+			// way to tell them apart, which is exactly the distinction this
+			// needs - hence reading the chunk grid rather than calling it.
+			chunkBuilder: { chunks: ChunkMeshes[][][] }
+		}
+
+		internals.setShader(internals.shaderProgram)
+		internals.setTexture(internals.atlasTexture, internals.resources.getPixelSize?.())
+		internals.prepareDraw(view)
+
+		const options = { pos: true, color: true, texture: true, normal: true }
+		const chunks: ChunkMeshes[] = []
+		for (const x of internals.chunkBuilder.chunks ?? []) {
+			for (const y of x ?? []) {
+				for (const chunk of y ?? []) {
+					if (chunk) chunks.push(chunk)
+				}
+			}
+		}
+
+		for (const chunk of chunks) {
+			if (!chunk.mesh.isEmpty()) internals.drawMesh(chunk.mesh, options)
+		}
+
+		this.gl.depthMask(false)
+		for (const chunk of chunks) {
+			if (!chunk.transparentMesh.isEmpty()) internals.drawMesh(chunk.transparentMesh, options)
+		}
+		this.gl.depthMask(true)
 	}
 
 	// World-space right/up vectors for the current orbit orientation, used to

@@ -8,6 +8,7 @@
 //
 // Every route requires the launcher's bearer token (see ApiServer.java).
 
+import type { ApiBlockFlags } from './block-flags'
 import type { ApiBlock } from './structure'
 
 export interface ModConnection {
@@ -146,6 +147,8 @@ export interface TreePreviewRequest {
 
 export interface TreePreviewResult {
 	blocks: ApiBlock[]
+	// Rendering hints per distinct block name - feed to registerBlockFlags.
+	blockFlags?: Record<string, ApiBlockFlags>
 	blockCount: number
 	// False when the feature declined to generate - bad soil, not enough room.
 	// That is a real outcome worth showing, not an error.
@@ -182,6 +185,7 @@ export interface ChunkPreviewRequest {
 
 export interface ChunkPreviewResult {
 	blocks: ApiBlock[]
+	blockFlags?: Record<string, ApiBlockFlags>
 	blockCount: number
 	chunkCount: number
 	decoratedCount: number

@@ -21,6 +21,7 @@ import {
 	type Resources,
 	type UV,
 } from 'deepslate'
+import { lookupBlockFlags } from './block-flags'
 import type { BlockSpec } from './structure'
 
 // The launcher's dev asset server can transiently drop a request under a burst
@@ -211,10 +212,11 @@ export class AssetResources implements Resources {
 		return this.atlas.getPixelSize()
 	}
 
-	// Spike scope: no opacity metadata means no face culling - correct output,
-	// just some overdraw. Wiring accurate flags is a later optimization.
-	getBlockFlags(_id: Identifier): BlockFlags | null {
-		return null
+	// Answered from what the backend reported for this block name - see
+	// block-flags.ts for why returning null here was not merely a missed
+	// optimization but the cause of water hiding the terrain beneath it.
+	getBlockFlags(id: Identifier): BlockFlags | null {
+		return lookupBlockFlags(id)
 	}
 
 	// The mod serializes complete blockstate properties, so deepslate never has

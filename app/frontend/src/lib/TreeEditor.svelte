@@ -35,6 +35,7 @@
 	} from '../renderer/project-client'
 	import { previewChunk } from '../renderer/mod-client'
 	import { BIOME_COLORS, DEFAULT_BIOME } from '../renderer/biome-colors'
+	import { registerBlockFlags } from '../renderer/block-flags'
 	import { takeRenderTimings, TreePreview } from '../renderer/preview'
 	import type { ApiBlock } from '../renderer/structure'
 	import BenchmarkModal from './BenchmarkModal.svelte'
@@ -518,6 +519,7 @@
 				seed: previewSeed,
 			})
 			if (seq !== genSeq) return
+			registerBlockFlags(result.blockFlags)
 			const blocks = result.blocks.filter((b) => b.name !== 'minecraft:air')
 
 			const target = docs.find((d) => d.key === docKey)
@@ -571,6 +573,7 @@
 			const serverMs = Math.round(performance.now() - tRequest)
 			if (seq !== genSeq) return
 
+			registerBlockFlags(result.blockFlags)
 			const blocks = result.blocks.filter((b) => b.name !== 'minecraft:air')
 			const target = docs.find((d) => d.key === docKey)
 			if (!target) return

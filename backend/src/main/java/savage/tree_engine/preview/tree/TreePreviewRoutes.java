@@ -11,6 +11,7 @@ import savage.tree_engine.api.ApiServer;
 import savage.tree_engine.api.Http;
 import savage.tree_engine.datapack.Session;
 import savage.tree_engine.datapack.SessionCache;
+import savage.tree_engine.preview.BlockFlagsDto;
 
 /**
  * {@code POST /v1/preview/tree} - generate a single tree in isolation.
@@ -65,6 +66,7 @@ public final class TreePreviewRoutes {
 
 		JsonObject response = new JsonObject();
 		response.add("blocks", gson.toJsonTree(result.blocks()));
+		response.add("blockFlags", gson.toJsonTree(BlockFlagsDto.forBlocks(result.blocks())));
 		response.addProperty("blockCount", result.blocks().size());
 		response.addProperty("placed", result.placed());
 		Http.sendJson(exchange, 200, gson.toJson(response));

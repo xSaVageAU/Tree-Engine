@@ -10,6 +10,7 @@ import savage.tree_engine.api.ApiException;
 import savage.tree_engine.api.ApiServer;
 import savage.tree_engine.api.Http;
 import savage.tree_engine.datapack.SessionCache;
+import savage.tree_engine.preview.BlockFlagsDto;
 
 /**
  * {@code POST /v1/preview/chunk} - generate real terrain decorated with the
@@ -61,6 +62,7 @@ public final class ChunkPreviewRoutes {
 
 		JsonObject response = new JsonObject();
 		response.add("blocks", gson.toJsonTree(result.blocks()));
+		response.add("blockFlags", gson.toJsonTree(BlockFlagsDto.forBlocks(result.blocks())));
 		response.addProperty("blockCount", result.blocks().size());
 		response.addProperty("chunkCount", result.chunkCount());
 		response.addProperty("decoratedCount", result.decoratedCount());
