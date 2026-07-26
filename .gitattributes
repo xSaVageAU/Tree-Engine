@@ -1,8 +1,10 @@
 #
 # https://help.github.com/articles/dealing-with-line-endings/
 #
-# Linux start script should use lf
-/mod/gradlew    text eol=lf
+# Linux start script should use lf. CI runs this on ubuntu, and a CRLF shebang
+# there fails with "bad interpreter". The path moved when mod/ became backend/;
+# the rule pointed at the old location and had quietly stopped applying.
+backend/gradlew text eol=lf
 
 # These are Windows script files and should use crlf
 *.bat           text eol=crlf

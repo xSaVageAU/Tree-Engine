@@ -48,7 +48,11 @@ docs/backport-info.md
 
 # node / wails frontend
 node_modules/
-app/frontend/dist/*
-!app/frontend/dist/gitkeep
+# Pure build output. Note main.go does `//go:embed all:frontend/dist`, so bare
+# `go build` on a fresh clone fails until the frontend has been built once -
+# `wails build`/`wails dev` create the directory themselves, and CI runs vite
+# before go. A committed placeholder cannot help here: vite empties outDir on
+# every build and would delete it.
+app/frontend/dist/
 app/frontend/package.json.md5
 
