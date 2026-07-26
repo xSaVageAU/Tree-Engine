@@ -97,6 +97,7 @@
 
 	// Editor/preview split - percentage width given to the editor pane.
 	let editorWidthPct = $state(55)
+	let splitDragging = $state(false)
 	let splitBodyEl = $state<HTMLDivElement | undefined>(undefined)
 
 	let importModalOpen = $state(false)
@@ -761,6 +762,11 @@
 		const rectLeft = rect.left
 		const rectWidth = rect.width
 		document.body.style.userSelect = 'none'
+		// The pane eases its flex-basis so opening a tree expands the editor
+		// smoothly. During a drag that same easing means every pointer move
+		// restarts a 200ms animation, so the pane chases the cursor instead of
+		// tracking it - it reads as deliberate smoothing rather than a drag.
+		splitDragging = true
 
 		function onMove(ev: PointerEvent): void {
 			const pct = ((ev.clientX - rectLeft) / rectWidth) * 100
@@ -772,11 +778,16 @@
 		}
 		function onUp(): void {
 			document.body.style.userSelect = ''
+			splitDragging = false
 			window.removeEventListener('pointermove', onMove)
 			window.removeEventListener('pointerup', onUp)
+			window.removeEventListener('pointercancel', onUp)
 		}
 		window.addEventListener('pointermove', onMove)
 		window.addEventListener('pointerup', onUp)
+		// pointercancel too: a cancelled drag never sends pointerup, which would
+		// leave the drag flag set and the expand animation disabled for good.
+		window.addEventListener('pointercancel', onUp)
 	}
 
 	// --- Commands ------------------------------------------------------------
@@ -1052,7 +1063,12 @@
 			{/if}
 
 			<div class="split-body" bind:this={splitBodyEl}>
-				<div class="editor-pane" class:collapsed={!activeTree} style="flex-basis: {activeTree ? editorWidthPct : 0}%">
+				<div
+					class="editor-pane"
+					class:collapsed={!activeTree}
+					class:dragging={splitDragging}
+					style="flex-basis: {activeTree ? editorWidthPct : 0}%"
+				>
 					{#if activeTree}
 						<div class="editor-tabs">
 							<div class="tabs">
@@ -1723,6 +1739,14 @@
 	}
 
 	.editor-pane.collapsed {
+		transition: none;
+	}
+
+	/* The eased flex-basis is for opening a tree, where the editor expands from
+	   nothing. A drag sets the width on every pointer move, and easing between
+	   each of those makes the pane lag behind the cursor by the length of the
+	   transition. Track the pointer exactly while dragging. */
+	.editor-pane.dragging {
 		transition: none;
 	}
 
