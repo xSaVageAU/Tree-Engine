@@ -130,6 +130,11 @@
 	const biomeOptions = Object.keys(BIOME_COLORS)
 	let autoRotateOn = $state(false)
 	let showGridOn = $state(true)
+
+	// World preview: ask the backend for only the blocks decoration added,
+	// leaving the terrain out. Finding one tree in nine chunks of forest is the
+	// hard part of checking a datapack actually did something.
+	let decoratedOnly = $state(false)
 	let bgColor = $state('#0b0f0c')
 
 	const activeDoc = $derived(docs.find((d) => d.key === activeKey) ?? null)
@@ -581,6 +586,7 @@
 				chunkZ: worldChunkZ,
 				size: worldSize,
 				seed: previewSeed,
+				decoratedOnly,
 			})
 			const serverMs = Math.round(performance.now() - tRequest)
 			if (seq !== genSeq) return
@@ -592,8 +598,14 @@
 			blockCache.set(docKey, blocks)
 			target.blockCount = blocks.length
 			target.genMs = Math.round(performance.now() - started)
+			const chunkLabel = `${result.chunkCount} chunk${result.chunkCount === 1 ? '' : 's'}`
 			target.status = {
-				message: `${result.chunkCount} chunk${result.chunkCount === 1 ? '' : 's'}, ${blocks.length} blocks`,
+				// An empty viewport is an ambiguous result on its own - it reads as
+				// a failure. In decoration-only mode it usually means the features
+				// genuinely placed nothing here, which is worth saying out loud.
+				message: decoratedOnly && blocks.length === 0
+					? `${chunkLabel}, nothing placed here — try another location or a larger area`
+					: `${chunkLabel}, ${blocks.length} blocks`,
 				error: false,
 				details: '',
 			}
@@ -608,7 +620,8 @@
 			const phases = render
 				? `server ${serverMs}ms · build ${render.buildMs}ms · assets ${render.assetsMs}ms · mesh ${render.meshMs}ms`
 				: `server ${serverMs}ms`
-			worldInfo = `y ${result.minY}..${result.maxY} · ${source} · ${phases}`
+			const scope = decoratedOnly ? 'decoration only · ' : ''
+			worldInfo = `y ${result.minY}..${result.maxY} · ${scope}${source} · ${phases}`
 		} catch (e) {
 			if (seq !== genSeq) return
 			const err = e as BackendError
@@ -750,6 +763,13 @@
 	function toggleShowGrid(): void {
 		showGridOn = !showGridOn
 		preview?.setShowGrid(showGridOn)
+	}
+
+	// Unlike the grid and background, this one changes what the backend is asked
+	// for, so it needs a regenerate rather than a renderer call.
+	function toggleDecoratedOnly(): void {
+		decoratedOnly = !decoratedOnly
+		if (activeWorld) void runWorldGenerate()
 	}
 
 	// Drags the boundary between the editor and preview panes. Widths are kept
@@ -1158,9 +1178,27 @@
 									>
 										<Icon name={generating ? 'spinner' : 'bolt'} size={15} class={generating ? 'spin' : ''} />
 									</button>
+									<button
+										class="tool-btn"
+										class:active={decoratedOnly}
+										title="Decoration only - hide terrain and show just what your datapack placed"
+										aria-pressed={decoratedOnly}
+										disabled={generating}
+										onclick={toggleDecoratedOnly}
+									>
+										<Icon name="layers" size={15} />
+									</button>
+									<span class="tool-sep"></span>
 									<button class="tool-btn" class:active={autoRotateOn} title="Auto-rotate" aria-pressed={autoRotateOn} onclick={toggleAutoRotate}>
 										<Icon name="orbit" size={15} />
 									</button>
+									<button class="tool-btn" class:active={showGridOn} title="Ground grid" aria-pressed={showGridOn} onclick={toggleShowGrid}>
+										<Icon name="grid" size={15} />
+									</button>
+									<label class="tool-btn swatch" title="Background colour">
+										<span class="swatch-chip" style="background: {bgColor}"></span>
+										<input type="color" bind:value={bgColor} />
+									</label>
 								</div>
 							</div>
 							{#if meshProgress > 0}

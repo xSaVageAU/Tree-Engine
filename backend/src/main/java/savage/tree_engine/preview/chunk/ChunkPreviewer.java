@@ -159,7 +159,17 @@ public final class ChunkPreviewer {
 			}
 			blocks.addAll(level.spillOutside(requestedKeys, floorY, ceilingY));
 		} else {
-			blocks = level.decorated();
+			// Obey the same cut as everything else. Ore generation is a placed
+			// feature, so decoration runs from bedrock up: unfiltered, this comes
+			// back as a mostly-empty column ~160 blocks tall whose bounding box is
+			// all underground ore, which is not what "show me what my datapack
+			// placed" means. decoratedCount below still reports the true total.
+			blocks = new ArrayList<>();
+			for (BlockDto block : level.decorated()) {
+				if (block.y() >= floorY && block.y() <= ceilingY) {
+					blocks.add(block);
+				}
+			}
 		}
 
 		int minY = Integer.MAX_VALUE;
