@@ -289,6 +289,12 @@ export class TreePreview {
 	}
 
 	resize(canvas: HTMLCanvasElement): void {
+		// A hidden or not-yet-laid-out pane reports zero size, and the projection
+		// matrix is built from clientWidth / clientHeight - so resizing to that
+		// would bake a 0/0 aspect ratio into it and the next draw would produce
+		// nothing. Skip; a real size change fires its own resize.
+		if (canvas.clientWidth === 0 || canvas.clientHeight === 0) return
+
 		const dpr = window.devicePixelRatio || 1
 		const width = Math.max(1, Math.floor(canvas.clientWidth * dpr))
 		const height = Math.max(1, Math.floor(canvas.clientHeight * dpr))

@@ -122,6 +122,7 @@
 	let projectName = $state('')
 
 	let canvasEl = $state<HTMLCanvasElement | undefined>(undefined)
+	let canvasResizeObserver: ResizeObserver | undefined
 	let preview: TreePreview | undefined
 
 	let biome = $state(DEFAULT_BIOME)
@@ -183,12 +184,8 @@
 	}
 
 	onDestroy(() => {
-		window.removeEventListener('resize', onWindowResize)
+		canvasResizeObserver?.disconnect()
 	})
-
-	function onWindowResize(): void {
-		if (canvasEl) preview?.resize(canvasEl)
-	}
 
 	async function refreshLibrary(): Promise<void> {
 		try {
@@ -462,7 +459,21 @@
 		if (!preview) {
 			preview = await TreePreview.create(canvasEl, blocks, assetsBaseURL, { showGrid: showGridOn, biome })
 			preview.setAutoRotate(autoRotateOn)
-			window.addEventListener('resize', onWindowResize)
+
+			// Watch the canvas itself, not the window. The canvas changes size
+			// without the window doing so - switching between the world preview
+			// and the editor's split pane is a pure layout change, which a window
+			// resize listener never hears about, so the drawing buffer kept its
+			// old size and the tree came out squished or stretched.
+			//
+			// It also fires *after* layout, which the splitter drag needs: setting
+			// editorWidthPct and then measuring the canvas in the same handler
+			// reads the width from before Svelte applied the change, so the
+			// preview trailed the pointer by one update.
+			canvasResizeObserver = new ResizeObserver(() => {
+				if (canvasEl) preview?.resize(canvasEl)
+			})
+			canvasResizeObserver.observe(canvasEl)
 		} else {
 			// Meshing a dense chunk takes seconds even spread across frames,
 			// so report it - progress that is visibly moving reads very
@@ -754,7 +765,10 @@
 		function onMove(ev: PointerEvent): void {
 			const pct = ((ev.clientX - rectLeft) / rectWidth) * 100
 			editorWidthPct = Math.min(78, Math.max(28, pct))
-			if (canvasEl) preview?.resize(canvasEl)
+			// No resize call here on purpose. Measuring the canvas straight after
+			// writing the width reads the pre-update value - the preview lagged a
+			// step behind the pointer - and it forces a layout on every pointer
+			// move. The ResizeObserver picks this up once layout has settled.
 		}
 		function onUp(): void {
 			document.body.style.userSelect = ''
