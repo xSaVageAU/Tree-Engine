@@ -32,8 +32,8 @@ fabricated soil plane. Answers "what does this config produce", with no terrain
 or neighbours in the way.
 
 **Natural chunks** — real terrain from the running world, decorated with your
-datapack's features. Answers "what will this look like in game". Reachable in
-the API today; it does not have a UI yet.
+datapack's features. Answers "what will this look like in game". This is the
+World Preview tab; pick a location and a span of one, four or nine chunks.
 
 The two share no code beyond the block format they both emit. That separation
 is deliberate: the fabricated ground the single-tree mode depends on would make
@@ -48,21 +48,23 @@ runtime and cached — never bundled, in line with Mojang's redistribution terms
 
 ## Getting started
 
-There is no released binary yet, so this means building from source.
+There is no released binary yet, so this means building from source. You need
+Go, Node, JDK 25 and the [Wails CLI](https://wails.io).
 
-```
-cd app && wails dev
-```
-
-That is the whole loop. Every `wails build` and `wails dev` rebuilds the backend
-jar and re-embeds it first, so the mod the app installs is always the one built
-from `backend/`. Changing backend code needs nothing but restarting the app.
-3. Accept the Minecraft EULA in the UI, then **Set Up & Start**. The app
+1. Build and run:
+   ```
+   cd app && wails dev
+   ```
+   That is the whole loop. Every `wails build` and `wails dev` rebuilds the
+   backend jar and re-embeds it first, so the mod the app installs is always the
+   one built from `backend/`. Changing backend code needs nothing but restarting
+   the app.
+2. Accept the Minecraft EULA in the UI, then **Set Up & Start**. The app
    downloads Java (if needed), a Fabric server and Fabric API, and installs the
    backend.
-4. Open a project folder — any folder; it is scaffolded into a datapack if it
+3. Open a project folder — any folder; it is scaffolded into a datapack if it
    isn't one already.
-5. **New Tree**, edit the JSON, watch the preview regenerate.
+4. **New Tree**, edit the JSON, watch the preview regenerate.
 
 Your project is a plain datapack. Copy it into a world's `datapacks/` folder
 and it works, with no part of Tree Engine involved.

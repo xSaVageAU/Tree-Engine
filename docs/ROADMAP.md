@@ -4,11 +4,11 @@
 
 The backend was rewritten from scratch for Minecraft 26.2 as a stateless
 generation service. Both preview modes work and are verified against a running
-server. The desktop app builds and typechecks against the new API.
+server. The 2.0 rewrite is merged to `main`.
 
-**Not yet exercised end to end.** The full flow — first-run setup, server boot,
-open project, edit, preview — has not been run start to finish since the
-rewrite. Expect rough edges in the seams until it has.
+The full flow — clone, build, first-run setup, server boot, open project, edit,
+preview — has been run start to finish. A clean clone reaches a working binary
+with a single `wails build`.
 
 | Capability | State |
 |---|---|
@@ -23,10 +23,16 @@ rewrite. Expect rough edges in the seams until it has.
 
 ## Next
 
-**Chunk preview performance.** The World Preview tab works, but a 3×3 area is
-~34k blocks against ~2k for one chunk, and the renderer meshes all of it on the
-main thread. One chunk is comfortable; the larger area is noticeably slower.
-Worth revisiting if the bigger view gets used in anger.
+**Chunk preview transfer cost.** The renderer is no longer the bottleneck — a
+3×3 meshes in ~35ms, down from over ten seconds, and the whole frontend side of
+a preview is under 100ms. What is left is upstream: ~1.3s of generation and a
+4.6MB JSON body for a 3×3, which is ~60k objects of
+`{x, y, z, name, properties}` to serialise and parse.
+
+A palette plus a packed position array would cut that by roughly an order of
+magnitude. Not worth doing at today's numbers, but it is the lever to pull
+before raising the 9-chunk cap or lowering the y=50 floor, since both scale it
+linearly.
 
 **Direct overwrites.** Replacers already prove the shadowing mechanism: write a
 configured feature under another namespace and Minecraft loads yours instead.

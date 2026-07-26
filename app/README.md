@@ -22,8 +22,15 @@ Gradle is incremental and the jar is byte-reproducible, so when the backend is
 unchanged the hook costs about a second and does not touch the embedded file.
 
 `internal/assets/tree-engine.jar` is committed on purpose. It is `go:embed`-ed,
-so `go build` fails without it - keeping it in the repo means a fresh clone
-builds with no extra steps. It only changes when the backend does.
+so `go build` fails without it, and keeping it in the repo means a clean clone
+reaches a working binary with one `wails build`. It only changes when the
+backend does.
+
+`main.go` also does `//go:embed all:frontend/dist`, and dist is build output, so
+a bare `go build` on a clean clone fails until the frontend has been built once.
+`wails build`/`wails dev` create the directory themselves and CI runs vite
+first, so this only bites raw Go tooling - an IDE opening the project before
+anything has been built, typically.
 
 ## Layout
 

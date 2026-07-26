@@ -86,6 +86,10 @@ A margin of chunks is snapshotted around the requested region and then
 discarded, because decoration reads its neighbours — a tree near an edge checks
 whether it has room.
 
+The response is cut at a flat height and is otherwise complete: every non-air
+block above it is reported. Deciding what is *visible* belongs to the renderer,
+not here — see [Rendering](#rendering).
+
 ### Why the separation is enforced
 
 `GroundPlane` carries a comment saying chunk previews must never import it, and
@@ -113,6 +117,39 @@ another, every feature failed its check, and previews came out silently empty:
 500 decorated blocks became 0. **Registry sets must be swapped wholesale, never
 half.** `ChunkPreviewLevel.getNoiseBiome` documents this at the point someone
 would be tempted to undo it.
+
+## Rendering
+
+The preview is [deepslate](https://github.com/misode/deepslate) reading real
+vanilla blockstates, models and textures, so a block type nobody anticipated
+still draws correctly. Assets are fetched from Mojang at runtime and cached per
+version.
+
+**The backend reports what generated; the renderer decides what is seen.** That
+line is load-bearing. It was briefly crossed — the chunk endpoint used to drop
+blocks sealed in on all six sides — and the result was worse on every axis:
+previews were hollow inside, the two culls disagreed about what "opaque" means,
+and the renderer got *slower*, because a surface block whose neighbour is
+missing has nothing to cull against and draws its inward face into the dark.
+Face culling is a renderer concern, per face, at draw time.
+
+Geometry is built by `chunk-mesher.ts` rather than deepslate's own
+`ChunkBuilder`, which cannot do a partial update cheaply: asking it to remesh
+one sub-chunk makes it walk every block in the structure, via a call that
+allocates an object per block. Meshing a chunk-sized preview in slices meant
+tens of millions of block visits for tens of thousands of blocks.
+
+The replacement rests on one observation: **a block's geometry is fully
+determined by its blockstate and its cull mask.** deepslate's `getMesh` has no
+position or randomness in it, so that pair can key a cache. A preview with 40
+distinct blockstates bakes a few hundred quad templates and then stamps them out
+with an offset, instead of running the model pipeline once per block. Slices
+read their own sub-volume out of a dense voxel grid, so total work is one pass
+over the volume, and vertices are written straight into exact-sized
+`Float32Array`s.
+
+Meshing a 3×3 chunk preview went from over ten seconds to ~35ms, verified
+quad-for-quad identical to `ChunkBuilder`'s output.
 
 ## Where files live
 

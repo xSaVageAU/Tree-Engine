@@ -111,10 +111,21 @@ surface, and a per-column crust following it. Both bounded the volume better
 and both produced artefacts on sloped ground that read as missing terrain. A
 single flat cut reads as a cross-section, which is honest and legible.
 
-What makes a flat cut affordable is interior culling: a block sealed in by six
-opaque neighbours contributes no visible face, so it is dropped. Faces on the
-edge of the window count as exposed, keeping the cut plane and the outer walls
-solid. For a 3×3 that is ~26k blocks emitted against ~150k filled.
+Above that cut, **every non-air block is reported**. A 3×3 at y 50–90 is around
+59k blocks.
+
+An earlier version dropped any block sealed in by six occluding neighbours, on
+the reasoning that it contributes no visible face. That was true of the first
+frame and false of the data: a mountain arrived as a hollow shell, and the rule
+disagreed with the renderer about what "opaque" means — `canOcclude` here
+against `isSolidRender` in the block flags — so a block could be dropped that
+the renderer would have drawn faces for. It also made the renderer *slower*: a
+surface block whose interior neighbour is missing has nothing to cull against,
+so its inward face gets drawn into the dark. Removing the rule more than doubled
+the block count and still cut the meshed geometry by ~10k quads.
+
+Deciding what is visible is the renderer's job, per face, at draw time — the way
+the game does it. This endpoint reports what generated.
 
 Decoration reaching past the requested chunks is included, so a tree on a
 chunk border is not sliced in half — bounded by the same window, since
