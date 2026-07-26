@@ -462,8 +462,18 @@
 	async function applyBlocks(blocks: ApiBlock[]): Promise<void> {
 		await tick()
 		if (!canvasEl || !assetsBaseURL) return
+
+		// The biome dropdown is a tree-preview control: it chooses which biome's
+		// foliage tint to visualise for a tree standing on fabricated ground. A
+		// world preview shows real terrain that may span several biomes, so
+		// letting that selection through tinted an entire chunk with whichever
+		// biome the user last edited a tree in - a taiga going cherry-pink
+		// because of an unrelated tab. Neutral default until the backend can
+		// report biome per column, which is the only way to get this right.
+		const tint = activeWorld ? DEFAULT_BIOME : biome
+
 		if (!preview) {
-			preview = await TreePreview.create(canvasEl, blocks, assetsBaseURL, { showGrid: showGridOn, biome })
+			preview = await TreePreview.create(canvasEl, blocks, assetsBaseURL, { showGrid: showGridOn, biome: tint })
 			preview.setAutoRotate(autoRotateOn)
 
 			// Watch the canvas itself, not the window. The canvas changes size
@@ -484,7 +494,7 @@
 			// Meshing a dense chunk takes seconds even spread across frames,
 			// so report it - progress that is visibly moving reads very
 			// differently from a window that has simply stopped.
-			await preview.setBlocks(blocks, assetsBaseURL, biome, (done, total) => {
+			await preview.setBlocks(blocks, assetsBaseURL, tint, (done, total) => {
 				if (total > 4) meshProgress = Math.round((done / total) * 100)
 			})
 		}
@@ -1299,8 +1309,11 @@
 					<span class="status-cell">{activeTree.genMs} ms</span>
 				{/if}
 				<span class="status-cell">Ln {cursor.line}, Col {cursor.column}</span>
+				<!-- Tree previews only: the biome here is the tint being visualised,
+				     which is a choice. A world preview shows whatever biomes the
+				     terrain actually has, so naming one would be a fiction. -->
+				<span class="status-cell">{biome.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')}</span>
 			{/if}
-			<span class="status-cell">{biome.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')}</span>
 		</div>
 	</footer>
 </div>
