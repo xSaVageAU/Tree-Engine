@@ -40,7 +40,19 @@ if (-not (Test-Path $jarPath)) {
 }
 
 New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
-Copy-Item $jarPath (Join-Path $assetsDir "tree-engine.jar") -Force
+
+# Only rewrite the embedded jar when its contents actually differ. This runs as
+# a Wails pre-build hook on every build and every `wails dev` hot restart, and
+# the jar is byte-reproducible, so an unchanged backend should leave the file -
+# and the working tree - completely alone.
+$targetJar = Join-Path $assetsDir "tree-engine.jar"
+$jarChanged = $true
+if (Test-Path $targetJar) {
+    $jarChanged = (Get-FileHash $jarPath).Hash -ne (Get-FileHash $targetJar).Hash
+}
+if ($jarChanged) {
+    Copy-Item $jarPath $targetJar -Force
+}
 
 $manifest = @{
     minecraftVersion = $minecraftVersion
@@ -52,4 +64,8 @@ $manifest = @{
 $manifestPath = Join-Path $assetsDir "mod-manifest.json"
 [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))
 
-Write-Host "Synced $jarName (mc=$minecraftVersion, fabric-api=$fabricApiVersion) into app/internal/assets/"
+if ($jarChanged) {
+    Write-Host "Synced $jarName (mc=$minecraftVersion, fabric-api=$fabricApiVersion) into app/internal/assets/"
+} else {
+    Write-Host "Embedded backend jar already up to date ($jarName)"
+}

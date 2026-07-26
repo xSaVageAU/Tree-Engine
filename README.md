@@ -50,14 +50,13 @@ runtime and cached — never bundled, in line with Mojang's redistribution terms
 
 There is no released binary yet, so this means building from source.
 
-1. Build the backend jar and embed it into the app:
-   ```
-   pwsh scripts/sync-backend-jar.ps1
-   ```
-2. Run the app:
-   ```
-   cd app && wails dev
-   ```
+```
+cd app && wails dev
+```
+
+That is the whole loop. Every `wails build` and `wails dev` rebuilds the backend
+jar and re-embeds it first, so the mod the app installs is always the one built
+from `backend/`. Changing backend code needs nothing but restarting the app.
 3. Accept the Minecraft EULA in the UI, then **Set Up & Start**. The app
    downloads Java (if needed), a Fabric server and Fabric API, and installs the
    backend.
@@ -86,7 +85,7 @@ same in your world as it does in the preview, and deleting it restores vanilla.
 | Backend alone | `cd backend && ./gradlew runServer` (needs a config file, see [backend/README.md](backend/README.md)) |
 | App | `cd app && wails dev` for live reload, `wails build` to package |
 | Frontend checks | `cd app/frontend && npx svelte-check` |
-| Re-embed the backend | `pwsh scripts/sync-backend-jar.ps1` after any backend change |
+| Re-embed the backend | automatic — a Wails pre-build hook runs `scripts/sync-backend-jar.ps1` on every build |
 
 Further reading: [backend/README.md](backend/README.md) for the HTTP API,
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and why,

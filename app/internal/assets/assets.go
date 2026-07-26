@@ -1,7 +1,7 @@
 // Package assets embeds the built Tree Engine backend jar and its metadata
-// manifest, both populated by scripts/sync-backend-jar.ps1. Never edit
-// tree-engine.jar or mod-manifest.json by hand - re-run the sync script
-// after changing the backend.
+// manifest, both populated by scripts/sync-backend-jar.ps1, which wails.json
+// runs as a pre-build hook before every Go build. Never edit tree-engine.jar or
+// mod-manifest.json by hand: any build regenerates them from backend/.
 package assets
 
 import (

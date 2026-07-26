@@ -11,9 +11,15 @@ wails dev      # live reload
 wails build    # package a binary
 ```
 
-The backend jar is embedded at build time. Re-run
-`pwsh ../scripts/sync-backend-jar.ps1` after changing anything in `backend/`,
-or you will be running the app against a stale jar.
+The backend jar is embedded at build time, and kept in step automatically: a
+`preBuildHooks` entry in `wails.json` runs `scripts/sync-backend-jar.ps1` before
+every Go build, including each `wails dev` hot restart. Change anything in
+`backend/` and the next build embeds it - and `StartServer` rewrites the jar in
+the managed instance on every start, so restarting the app is all it takes for
+backend changes to go live.
+
+Gradle is incremental and the jar is byte-reproducible, so when the backend is
+unchanged the hook costs about a second and does not touch the embedded file.
 
 `internal/assets/tree-engine.jar` is committed on purpose. It is `go:embed`-ed,
 so `go build` fails without it - keeping it in the repo means a fresh clone

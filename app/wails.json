@@ -6,6 +6,18 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
+  "//preBuildHooks": [
+    "Rebuilds the backend mod and re-embeds its jar before every Go build, so",
+    "the jar baked into the app is never stale. Runs for `wails build` and for",
+    "`wails dev`, including each hot restart. Gradle is incremental and the jar",
+    "is byte-reproducible, so an unchanged backend costs a couple of seconds and",
+    "leaves the embedded file untouched. Hooks run with the working directory",
+    "set to build/bin, hence the ../../.. prefix; `powershell` rather than",
+    "`pwsh` because Windows PowerShell is what ships with the OS."
+  ],
+  "preBuildHooks": {
+    "*/*": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../../scripts/sync-backend-jar.ps1"
+  },
   "author": {
     "name": "xSaVageAU",
     "email": "jessejd1997@gmail.com"
