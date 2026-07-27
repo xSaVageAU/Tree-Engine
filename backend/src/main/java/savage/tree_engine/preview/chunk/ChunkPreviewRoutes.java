@@ -74,7 +74,17 @@ public final class ChunkPreviewRoutes {
 		// without guessing where the ground is.
 		response.addProperty("minY", result.minY());
 		response.addProperty("maxY", result.maxY());
-		Http.sendJson(exchange, 200, gson.toJson(response));
+
+		// The last phase the preview timings cannot see, since it is what turns
+		// them into a response. Logged rather than returned for the obvious
+		// reason: the number is not known until the body is already built.
+		long tSerialize = System.nanoTime();
+		String json = gson.toJson(response);
+		ApiServer.LOGGER.info(
+			"Chunk preview response: {} blocks, {} KB of JSON, serialised in {}ms",
+			result.blocks().size(), json.length() / 1024, (System.nanoTime() - tSerialize) / 1_000_000L);
+
+		Http.sendJson(exchange, 200, json);
 	}
 
 	/**
