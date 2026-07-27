@@ -29,7 +29,7 @@ public final class ChunkPreviewer {
 	 * Chunks are expensive: each is a full block array plus decoration.
 	 * A preview is a viewport, not a world download.
 	 */
-	private static final int MAX_CHUNKS = 9;
+	private static final int MAX_CHUNKS = 36;
 
 	/**
 	 * Decoration reads the chunks around the one it is populating - a tree

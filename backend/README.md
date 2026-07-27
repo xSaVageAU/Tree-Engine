@@ -89,7 +89,7 @@ features.
 |---|---|
 | `sessionId` | Omit to preview plain vanilla generation |
 | `chunkX`, `chunkZ` | Chunk to generate |
-| `size` | Chunks across: 1, 2 (2×2) or 3 (3×3). Capped at 9 chunks total |
+| `size` | Chunks across: 1 up to 6 (6×6). Capped at 36 chunks total |
 | `radius` | Older form: 0 = one chunk, 1 = 3×3. Cannot express an even span |
 | `seed` | Decoration seed |
 | `decoratedOnly` | Return only what decoration added, not the terrain under it |
