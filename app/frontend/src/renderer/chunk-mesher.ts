@@ -83,6 +83,35 @@ interface PaletteInfo {
 // Position is the only attribute that depends on where the block sits, so
 // colour is a straight memcpy too - unless biome tinting is on, in which case
 // it is a multiply (see buildMeshes).
+// Minecraft shades a face by which way it points, and deepslate's built-in
+// version of this is much flatter than the game's: its shader computes
+// `normal.y * 0.2 + abs(normal.z) * 0.1 + 0.8`, giving top 1.0, bottom 0.6,
+// north/south 0.9 and east/west 0.8, where vanilla uses 1.0 / 0.5 / 0.8 / 0.6.
+// Compressing a half-range into 0.6-1.0 is what made terrain read flat: the
+// vertical faces that define a landscape's shape were barely separated from
+// the tops.
+//
+// The shader multiplies by the vertex colour, so baking the ratio between the
+// two into the colour lands on vanilla's numbers without touching deepslate.
+function faceShadeFactor(nx: number, ny: number, nz: number): number {
+	const deepslate = ny * 0.2 + Math.abs(nz) * 0.1 + 0.8
+	let vanilla: number
+	if (ny > 0.5) vanilla = 1.0
+	else if (ny < -0.5) vanilla = 0.5
+	else if (Math.abs(nz) > 0.5) vanilla = 0.8
+	else if (Math.abs(nx) > 0.5) vanilla = 0.6
+	// Angled faces - rails, crops - are not one of vanilla's six cases. Its
+	// north/south value is the least wrong answer and the one the game itself
+	// falls back to.
+	else vanilla = 0.8
+	return deepslate > 0.0001 ? vanilla / deepslate : 1
+}
+
+// How much a vertex darkens for 0, 1, 2 or 3 occluding neighbours. Vanilla
+// derives its own from light propagation; these are picked to read like it
+// without a light engine behind them.
+const AO_CURVE = [0.5, 0.7, 0.86, 1.0]
+
 interface Template {
 	quads: number
 	pos: Float32Array // 12 per quad (4 vertices x xyz)
@@ -90,6 +119,10 @@ interface Template {
 	texture: Float32Array // 8 per quad
 	textureLimit: Float32Array // 16 per quad
 	normal: Float32Array // 12 per quad
+	// Face shading, one per vertex. Kept apart from `color` because with biome
+	// tinting `color` is a mask that gets blended, and a shade folded into it
+	// would corrupt the blend.
+	shade: Float32Array // 4 per quad
 }
 
 function bakeTemplate(mesh: Mesh): Template | null {
@@ -103,16 +136,19 @@ function bakeTemplate(mesh: Mesh): Template | null {
 		texture: new Float32Array(quads * 8),
 		textureLimit: new Float32Array(quads * 16),
 		normal: new Float32Array(quads * 12),
+		shade: new Float32Array(quads * 4),
 	}
 
-	let p = 0, c = 0, t = 0, l = 0, n = 0
+	let p = 0, c = 0, t = 0, l = 0, n = 0, s = 0
 	for (const quad of mesh.quads) {
 		// Per-quad flat normal, matching what ChunkBuilder.finishChunkMesh
 		// computes. Translation does not affect it (it comes from differences
 		// between vertices), so baking it before the offset is applied is
 		// exactly equivalent to computing it after.
 		const normal = quad.normal()
+		const shade = faceShadeFactor(normal.x, normal.y, normal.z)
 		for (const vertex of [quad.v1, quad.v2, quad.v3, quad.v4]) {
+			template.shade[s++] = shade
 			const { texture, textureLimit } = vertex
 			// Mirrors the check in deepslate's own Mesh.rebuild: a face that never
 			// had a texture assigned would otherwise be silently packed as zeros
@@ -159,7 +195,10 @@ export class SliceMesh {
 		private readonly gl: WebGLRenderingContext,
 		private readonly quads: number,
 		indexBuffer: WebGLBuffer,
-		arrays: Omit<Template, 'quads'>,
+		// Only the attributes the GPU sees. `shade` is not among them: it is
+		// folded into `color` while stamping, so nothing has to be uploaded per
+		// vertex twice or resolved again in a shader.
+		arrays: Omit<Template, 'quads' | 'shade'>,
 	) {
 		this.indexBuffer = indexBuffer
 		this.posBuffer = uploadArray(gl, arrays.pos)
@@ -445,6 +484,64 @@ export class ChunkMesher {
 		}
 	}
 
+	/** Whether the voxel at these coordinates occludes, for AO purposes. */
+	private occludes(x: number, y: number, z: number): boolean {
+		const [sizeX, sizeY, sizeZ] = this.built.size
+		if (x < 0 || y < 0 || z < 0 || x >= sizeX || y >= sizeY || z >= sizeZ) return false
+		const slot = this.built.voxels[x * sizeY * sizeZ + y * sizeZ + z]
+		if (slot === 0) return false
+		return this.paletteInfo[slot - 1].opaque
+	}
+
+	/**
+	 * Ambient occlusion for one vertex, by the standard voxel formula: look at
+	 * the two edge neighbours and the corner neighbour that meet at this
+	 * vertex, in the plane just outside the face.
+	 *
+	 * Two edge neighbours meeting is the fully-enclosed case and goes darkest
+	 * regardless of the corner, which is what keeps an inside corner from
+	 * looking lighter than the flat wall beside it.
+	 *
+	 * `lx/ly/lz` are the vertex's position within its own block, so comparing
+	 * against the midpoint says which of the face's four corners this is.
+	 */
+	private vertexAO(
+		bx: number, by: number, bz: number,
+		lx: number, ly: number, lz: number,
+		nx: number, ny: number, nz: number,
+	): number {
+		let s1: boolean, s2: boolean, corner: boolean
+		if (Math.abs(nx) > 0.5) {
+			const ox = bx + (nx > 0 ? 1 : -1)
+			const dy = ly < 0.5 ? -1 : 1
+			const dz = lz < 0.5 ? -1 : 1
+			s1 = this.occludes(ox, by + dy, bz)
+			s2 = this.occludes(ox, by, bz + dz)
+			corner = this.occludes(ox, by + dy, bz + dz)
+		} else if (Math.abs(ny) > 0.5) {
+			const oy = by + (ny > 0 ? 1 : -1)
+			const dx = lx < 0.5 ? -1 : 1
+			const dz = lz < 0.5 ? -1 : 1
+			s1 = this.occludes(bx + dx, oy, bz)
+			s2 = this.occludes(bx, oy, bz + dz)
+			corner = this.occludes(bx + dx, oy, bz + dz)
+		} else if (Math.abs(nz) > 0.5) {
+			const oz = bz + (nz > 0 ? 1 : -1)
+			const dx = lx < 0.5 ? -1 : 1
+			const dy = ly < 0.5 ? -1 : 1
+			s1 = this.occludes(bx + dx, by, oz)
+			s2 = this.occludes(bx, by + dy, oz)
+			corner = this.occludes(bx + dx, by + dy, oz)
+		} else {
+			// An angled face has no well-defined neighbour trio. Left unoccluded
+			// rather than guessed at.
+			return 1
+		}
+
+		if (s1 && s2) return AO_CURVE[0]
+		return AO_CURVE[3 - ((s1 ? 1 : 0) + (s2 ? 1 : 0) + (corner ? 1 : 0))]
+	}
+
 	// Packs the collected entries into as few meshes as the Uint16 index limit
 	// allows, stamping each block's template at its offset.
 	private buildMeshes(entries: Int32Array, count: number): SliceMesh[] {
@@ -478,25 +575,43 @@ export class ChunkMesher {
 					pos[p++] = tp[i + 1] + y
 					pos[p++] = tp[i + 2] + z
 				}
-				// Biome tinting turns this copy into a blend. The baked colour is
-				// a mask - 0 where the model declared a tintindex, 1 where it did
-				// not - so `tint + (1 - tint) * mask` yields the biome colour on
-				// tinted faces and leaves everything else at 1.
-				const info = this.tints
-					? this.paletteInfo[Math.floor(entries[o] / CULL_MASK_COUNT)]
-					: null
-				if (info?.tintKind) {
-					const tint = this.tintScratch
+				// Colour is per-vertex now: the baked tint or tint mask, scaled by
+				// the face's shading and by how enclosed that corner is.
+				const info = this.paletteInfo[Math.floor(entries[o] / CULL_MASK_COUNT)]
+				const kind = this.tints ? info.tintKind : null
+				const tint = this.tintScratch
+				if (kind) {
+					// The baked colour is a mask - 0 where the model declared a
+					// tintindex, 1 where it did not - so `tint + (1 - tint) * mask`
+					// yields the biome colour on tinted faces and 1 elsewhere.
 					const [ox, , oz] = this.built.origin
-					this.tints!.sample(info.tintKind, x + ox, z + oz, tint)
-					const tc = template.color
-					for (let i = 0; i < tc.length; i += 3) {
-						color[c++] = tint[0] + (1 - tint[0]) * tc[i]
-						color[c++] = tint[1] + (1 - tint[1]) * tc[i + 1]
-						color[c++] = tint[2] + (1 - tint[2]) * tc[i + 2]
+					this.tints!.sample(kind, x + ox, z + oz, tint)
+				}
+				// AO is only applied to full solid blocks. Leaves, plants and
+				// glass have their own shape and shading it by neighbours reads
+				// as dirt rather than depth.
+				const ao = info.opaque
+				const tc = template.color
+				const ts = template.shade
+				const tn = template.normal
+				for (let i = 0, v = 0; i < tc.length; i += 3, v++) {
+					let light = ts[v]
+					if (ao) {
+						light *= this.vertexAO(
+							x, y, z,
+							tp[i], tp[i + 1], tp[i + 2],
+							tn[i], tn[i + 1], tn[i + 2],
+						)
 					}
-				} else {
-					color.set(template.color, c); c += template.color.length
+					if (kind) {
+						color[c++] = (tint[0] + (1 - tint[0]) * tc[i]) * light
+						color[c++] = (tint[1] + (1 - tint[1]) * tc[i + 1]) * light
+						color[c++] = (tint[2] + (1 - tint[2]) * tc[i + 2]) * light
+					} else {
+						color[c++] = tc[i] * light
+						color[c++] = tc[i + 1] * light
+						color[c++] = tc[i + 2] * light
+					}
 				}
 				texture.set(template.texture, t); t += template.texture.length
 				textureLimit.set(template.textureLimit, l); l += template.textureLimit.length
