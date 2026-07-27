@@ -3,15 +3,21 @@ package savage.tree_engine.preview.chunk;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ChunkResult;
+import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGenerator;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.dimension.LevelStem;
 import savage.tree_engine.api.ApiException;
+import savage.tree_engine.api.ApiServer;
 import savage.tree_engine.preview.BlockDto;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Generates what a chunk would actually look like in game with a datapack
@@ -83,18 +89,69 @@ public final class ChunkPreviewer {
 		int minChunkZ = centerZ - before;
 		int maxChunkZ = centerZ + after;
 
-		// Snapshotting reads live chunks, so it has to happen on the server
-		// thread. Decoration afterwards works purely on the copies and stays
-		// off it, keeping the game loop free.
+		// Ask for every chunk at once, then wait for the lot.
+		//
+		// This must run off the server thread, and that is the whole point.
+		// ServerChunkCache.getChunkFuture, called *from* the server thread,
+		// managedBlocks until that one chunk is done - so generating a grid
+		// from there is strictly serial, one cold chunk after another, with the
+		// game loop stalled throughout. Called from anywhere else it merely
+		// queues a cheap dispatch on the server thread and returns, so issuing
+		// the whole grid up front lets Minecraft's worldgen workers run them
+		// concurrently. At 6x6 that is 64 chunks (the grid plus its margin)
+		// that used to be a serial ~100ms each.
+		//
+		// Correctness does not depend on this: called on the server thread it
+		// still works, just serially, exactly as before.
+		long tGenerate = System.nanoTime();
+		ServerChunkCache chunkSource = server.overworld().getChunkSource();
+		List<CompletableFuture<ChunkResult<ChunkAccess>>> pending = new ArrayList<>();
+		for (int x = minChunkX - MARGIN; x <= maxChunkX + MARGIN; x++) {
+			for (int z = minChunkZ - MARGIN; z <= maxChunkZ + MARGIN; z++) {
+				pending.add(chunkSource.getChunkFuture(x, z, ChunkStatus.SURFACE, true));
+			}
+		}
+
+		// Then drive the server thread to drain them, rather than just waiting.
+		//
+		// Every chunk status transition has to hop through the server thread,
+		// and MinecraftServer.pollTask only drains that queue `while
+		// (haveTime())` - the slack left in the current tick. Simply joining the
+		// futures therefore advances generation in 50ms dribbles and is *slower*
+		// than the old serial code, which went through managedBlock and spun the
+		// drain flat out. Issuing the futures first and then spinning gets both:
+		// the whole grid in flight at once, and the queue emptied as fast as the
+		// CPU allows.
+		CompletableFuture<Void> allDone =
+			CompletableFuture.allOf(pending.toArray(new CompletableFuture[0]));
+		server.submit(() -> server.managedBlock(allDone::isDone)).join();
+
+		List<ChunkAccess> generated = new ArrayList<>(pending.size());
+		for (CompletableFuture<ChunkResult<ChunkAccess>> future : pending) {
+			ChunkResult<ChunkAccess> result = future.join();
+			if (!result.isSuccess()) {
+				throw ApiException.internal(
+					"Chunk generation failed",
+					new IllegalStateException(result.getError()));
+			}
+			generated.add(result.orElse(null));
+		}
+
+		long generateMs = millisSince(tGenerate);
+
+		// Copying reads live chunks, so it has to happen on the server thread.
+		// It is only an array copy now that generation is already done, so the
+		// game loop is held for a fraction of what it was. Decoration afterwards
+		// works purely on the copies and stays off the server thread entirely.
+		long tCopy = System.nanoTime();
 		List<TerrainSnapshot> all = server.submit(() -> {
-			List<TerrainSnapshot> out = new ArrayList<>();
-			for (int x = minChunkX - MARGIN; x <= maxChunkX + MARGIN; x++) {
-				for (int z = minChunkZ - MARGIN; z <= maxChunkZ + MARGIN; z++) {
-					out.add(TerrainSnapshot.capture(server.overworld(), new ChunkPos(x, z)));
-				}
+			List<TerrainSnapshot> out = new ArrayList<>(generated.size());
+			for (ChunkAccess chunk : generated) {
+				out.add(TerrainSnapshot.capture(chunk));
 			}
 			return out;
 		}).join();
+		long copyMs = millisSince(tCopy);
 
 		// Only the chunks the caller asked for get decorated and returned;
 		// the margin exists purely so neighbour lookups resolve.
@@ -107,6 +164,7 @@ public final class ChunkPreviewer {
 			}
 		}
 
+		long tDecorate = System.nanoTime();
 		ChunkGenerator generator = generatorFor(registries);
 		RandomSource random = RandomSource.create(seed);
 		ChunkPreviewLevel level =
@@ -121,6 +179,10 @@ public final class ChunkPreviewer {
 					"Decoration failed for chunk " + snapshot.pos().x() + "," + snapshot.pos().z(), e);
 			}
 		}
+
+		long decorateMs = millisSince(tDecorate);
+
+		long tEmit = System.nanoTime();
 
 		// The preview is cut at a flat height rather than fitted to each
 		// column. Earlier versions were cleverer about this - fitting a window
@@ -183,7 +245,18 @@ public final class ChunkPreviewer {
 			maxY = floorY;
 		}
 
-		return new Result(blocks, requested.size(), level.decorated().size(), minY, maxY);
+		Timings timings = new Timings(
+			generateMs, copyMs, decorateMs, millisSince(tEmit), generated.size());
+		ApiServer.LOGGER.info(
+			"Chunk preview {}x{} at {},{}: {} blocks, {}", size, size, centerX, centerZ,
+			blocks.size(), timings);
+
+		return new Result(
+			blocks, requested.size(), level.decorated().size(), minY, maxY, timings);
+	}
+
+	private static long millisSince(long startNanos) {
+		return (System.nanoTime() - startNanos) / 1_000_000L;
 	}
 
 	/**
@@ -211,12 +284,39 @@ public final class ChunkPreviewer {
 	}
 
 	/**
+	 * Where a preview's time went, in milliseconds.
+	 *
+	 * Reported rather than guessed at, because the four phases scale very
+	 * differently with area and which one dominates decides what is worth
+	 * optimising next.
+	 *
+	 * @param generateMs  waiting for terrain to generate, margin included
+	 * @param copyMs      snapshotting the generated chunks, on the server thread
+	 * @param decorateMs  running the session's features over the snapshots
+	 * @param emitMs      turning the result into block DTOs
+	 * @param chunksTouched chunks generated, i.e. the grid plus its margin,
+	 *                      which is what generateMs is really divided over
+	 */
+	public record Timings(
+		long generateMs, long copyMs, long decorateMs, long emitMs, int chunksTouched) {
+
+		@Override
+		public String toString() {
+			return "generate=" + generateMs + "ms (" + chunksTouched + " chunks)"
+				+ " copy=" + copyMs + "ms"
+				+ " decorate=" + decorateMs + "ms"
+				+ " emit=" + emitMs + "ms";
+		}
+	}
+
+	/**
 	 * @param blocks        the preview geometry
 	 * @param chunkCount    how many chunks were generated
 	 * @param decoratedCount how many blocks decoration added, always reported
 	 *                       so a preview that produced no trees is obvious
 	 */
 	public record Result(
-		List<BlockDto> blocks, int chunkCount, int decoratedCount, int minY, int maxY) {
+		List<BlockDto> blocks, int chunkCount, int decoratedCount, int minY, int maxY,
+		Timings timings) {
 	}
 }

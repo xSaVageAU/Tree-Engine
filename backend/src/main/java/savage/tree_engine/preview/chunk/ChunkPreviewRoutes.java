@@ -67,6 +67,9 @@ public final class ChunkPreviewRoutes {
 		response.addProperty("chunkCount", result.chunkCount());
 		response.addProperty("decoratedCount", result.decoratedCount());
 		response.addProperty("datapackApplied", sessionId != null);
+		// Where the server's time actually went, so a slow preview can be
+		// attributed rather than guessed at.
+		response.add("timings", gson.toJsonTree(result.timings()));
 		// The vertical window actually used, so a client can frame the camera
 		// without guessing where the ground is.
 		response.addProperty("minY", result.minY());

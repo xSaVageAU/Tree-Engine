@@ -194,6 +194,16 @@ export interface ChunkPreviewResult {
 	// The vertical window actually used.
 	minY: number
 	maxY: number
+	// Where the server's own time went. The remainder of the round trip is
+	// JSON serialisation and transfer.
+	timings?: {
+		generateMs: number
+		copyMs: number
+		decorateMs: number
+		emitMs: number
+		// Includes the margin chunks, which is why this exceeds chunkCount.
+		chunksTouched: number
+	}
 }
 
 // Real terrain from the running world, decorated with the session's features.

@@ -71,6 +71,10 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 	private final RegistryAccess registries;
 	private final Map<Long, TerrainSnapshot> terrain = new HashMap<>();
 	private final Map<BlockPos, BlockState> placed = new LinkedHashMap<>();
+	/** Highest block decoration has written per column, keyed by packed x/z. */
+	private final Map<Long, Integer> placedTop = new HashMap<>();
+	/** Columns whose top was cleared, so only a scan can answer for them. */
+	private final java.util.Set<Long> rescan = new java.util.HashSet<>();
 	private final RandomSource random;
 	private final long seed;
 
@@ -205,7 +209,29 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 		// chunks (a tree on the border). Those writes are accepted and
 		// reported; the renderer can clip them if it wants.
 		placed.put(pos.immutable(), state);
+
+		// Keep the column tops that getHeight reads in step with the write.
+		long column = columnKey(pos.getX(), pos.getZ());
+		if (state.isAir()) {
+			// Clearing a block can only ever lower a top, and the new top is
+			// whatever lies beneath - which needs a scan to find. Only bother
+			// when the cleared block could actually have been the top.
+			if (pos.getY() >= cachedTop(column, pos.getX(), pos.getZ())) {
+				placedTop.remove(column);
+				rescan.add(column);
+			}
+		} else {
+			placedTop.merge(column, pos.getY(), Math::max);
+		}
 		return true;
+	}
+
+	/** The column's top as the fast path currently believes it to be. */
+	private int cachedTop(long column, int x, int z) {
+		TerrainSnapshot snapshot = terrain.get(ChunkPos.pack(x >> 4, z >> 4));
+		int top = snapshot != null ? snapshot.topNonAir(x, z) : TerrainSnapshot.NO_BLOCKS;
+		Integer written = placedTop.get(column);
+		return written != null && written > top ? written : top;
 	}
 
 	@Override
@@ -251,9 +277,22 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 	}
 
 	/**
-	 * Derived by scanning the column rather than read from a heightmap,
-	 * because writes shadow the snapshot and a stale heightmap would put
-	 * features inside the terrain they were meant to sit on.
+	 * Derived from the terrain rather than read from a chunk heightmap, because
+	 * writes shadow the snapshot and a stale heightmap would put features inside
+	 * the terrain they were meant to sit on.
+	 *
+	 * <p>This used to scan the whole column top-down, which measured at ~29us a
+	 * call and made decoration 93% of a preview's runtime: the world is 384
+	 * blocks tall, the terrain tops out around 100, and features ask for a
+	 * height on essentially every placement attempt, so almost every call burnt
+	 * ~280 iterations of pure air before reaching anything. It is now the
+	 * snapshot's precomputed terrain top combined with the highest block
+	 * decoration has since written into the column, which is the same answer in
+	 * O(1).
+	 *
+	 * <p>The {@code type} is ignored, exactly as it always has been - every
+	 * heightmap type here means "first non-air from the top". Preserved
+	 * deliberately: changing it would change where features land.
 	 */
 	@Override
 	public int getHeight(Heightmap.Types type, int x, int z) {
@@ -261,6 +300,26 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 		if (snapshot == null) {
 			return getMinY();
 		}
+		long column = columnKey(x, z);
+		if (rescan.contains(column)) {
+			return scanColumn(snapshot, x, z);
+		}
+		int top = snapshot.topNonAir(x, z);
+		Integer written = placedTop.get(column);
+		if (written != null && written > top) {
+			top = written;
+		}
+		return top == TerrainSnapshot.NO_BLOCKS ? snapshot.minY() : top + 1;
+	}
+
+	/**
+	 * The old full-column walk, kept for columns the fast path cannot answer:
+	 * once decoration has *removed* the block that was a column's top, the
+	 * cached top is an upper bound rather than the answer, and only a scan
+	 * knows what is underneath it. Features that clear blocks are rare enough
+	 * that this stays off the hot path.
+	 */
+	private int scanColumn(TerrainSnapshot snapshot, int x, int z) {
 		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 		for (int y = snapshot.minY() + snapshot.height() - 1; y >= snapshot.minY(); y--) {
 			cursor.set(x, y, z);
@@ -269,6 +328,10 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 			}
 		}
 		return snapshot.minY();
+	}
+
+	private static long columnKey(int x, int z) {
+		return ((long) x << 32) | (z & 0xffffffffL);
 	}
 
 	@Override

@@ -627,9 +627,16 @@
 			// different ways, and knowing which one is the problem is the
 			// whole point of showing this.
 			const render = takeRenderTimings()
-			const phases = render
-				? `server ${serverMs}ms · build ${render.buildMs}ms · assets ${render.assetsMs}ms · mesh ${render.meshMs}ms`
+			// The server's own breakdown, when it sent one. Worth the extra
+			// detail: "server 6s" says nothing about whether the fix is fewer
+			// chunks, faster decoration or a smaller payload.
+			const t = result.timings
+			const server = t
+				? `server ${serverMs}ms (gen ${t.generateMs} · copy ${t.copyMs} · dec ${t.decorateMs} · emit ${t.emitMs})`
 				: `server ${serverMs}ms`
+			const phases = render
+				? `${server} · build ${render.buildMs}ms · assets ${render.assetsMs}ms · mesh ${render.meshMs}ms`
+				: server
 			const scope = decoratedOnly ? 'decoration only · ' : ''
 			worldInfo = `y ${result.minY}..${result.maxY} · ${scope}${source} · ${phases}`
 		} catch (e) {
