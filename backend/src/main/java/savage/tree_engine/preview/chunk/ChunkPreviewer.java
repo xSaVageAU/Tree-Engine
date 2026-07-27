@@ -34,8 +34,15 @@ public final class ChunkPreviewer {
 	/**
 	 * Chunks are expensive: each is a full block array plus decoration.
 	 * A preview is a viewport, not a world download.
+	 *
+	 * <p>What sets this ceiling is memory rather than time. Generation and
+	 * decoration cost roughly 15ms a chunk, so even this many is a couple of
+	 * seconds; but the response is built as a Gson tree, then a String, then a
+	 * byte array, all live at once, and that is several hundred megabytes of
+	 * transient heap inside the game's own JVM at 100 chunks. Raising this
+	 * further wants a compact wire format first, not a faster generator.
 	 */
-	private static final int MAX_CHUNKS = 36;
+	private static final int MAX_CHUNKS = 100;
 
 	/**
 	 * Decoration reads the chunks around the one it is populating - a tree
