@@ -31,6 +31,10 @@ export interface BlockSpec {
 
 export interface BuiltStructure {
 	size: [number, number, number]
+	// World coordinates of local (0,0,0). The grid is translated to a zero-based
+	// origin for indexing, but biome tinting has to get back to world space to
+	// know which column a block stands in.
+	origin: [number, number, number]
 	// Geometric center in local coordinates, for aiming the camera.
 	center: [number, number, number]
 	// Palette index + 1 per voxel, so 0 reads as "empty". Indexed
@@ -44,6 +48,7 @@ export interface BuiltStructure {
 
 const EMPTY: BuiltStructure = {
 	size: [1, 1, 1],
+	origin: [0, 0, 0],
 	center: [0.5, 0.5, 0.5],
 	voxels: new Int32Array(1),
 	palette: [],
@@ -93,6 +98,7 @@ export function buildStructure(blocks: ApiBlock[]): BuiltStructure {
 
 	return {
 		size,
+		origin: [minX, minY, minZ],
 		center: [size[0] / 2, size[1] / 2, size[2] / 2],
 		voxels,
 		palette,

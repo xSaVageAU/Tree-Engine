@@ -33,7 +33,7 @@
 		saveTree,
 		type Replacer,
 	} from '../renderer/project-client'
-	import { previewChunk } from '../renderer/mod-client'
+	import { previewChunk, type ApiBiomeGrid } from '../renderer/mod-client'
 	import { BIOME_COLORS, DEFAULT_BIOME } from '../renderer/biome-colors'
 	import { registerBlockFlags } from '../renderer/block-flags'
 	import { takeRenderTimings, TreePreview } from '../renderer/preview'
@@ -80,6 +80,11 @@
 	// Generated blocks are deliberately kept out of $state: a tree can be
 	// thousands of block objects and deep reactivity would proxy every one.
 	const blockCache = new Map<string, ApiBlock[]>()
+
+	// The biome grid that came with each world preview, kept alongside its
+	// blocks so switching tabs re-renders with the right tints rather than
+	// falling back to a flat colour.
+	const biomeCache = new Map<string, ApiBiomeGrid | null>()
 
 	let docs = $state<Doc[]>([])
 	let activeKey = $state<string | null>(null)
@@ -452,6 +457,15 @@
 	// render landed last up to chance. Chaining makes the last call win.
 	let renderChain: Promise<void> = Promise.resolve()
 
+	// "minecraft:old_growth_birch_forest" -> "Old Growth Birch Forest". Custom
+	// biomes keep their namespace, since that is the interesting part when a
+	// datapack defines one.
+	function prettyBiome(id: string): string {
+		const [namespace, path] = id.includes(':') ? id.split(':', 2) : ['minecraft', id]
+		const words = path.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+		return namespace === 'minecraft' ? words : `${namespace}:${words}`
+	}
+
 	function renderBlocks(blocks: ApiBlock[]): Promise<void> {
 		renderChain = renderChain
 			.catch(() => {})
@@ -465,15 +479,14 @@
 
 		// The biome dropdown is a tree-preview control: it chooses which biome's
 		// foliage tint to visualise for a tree standing on fabricated ground. A
-		// world preview shows real terrain that may span several biomes, so
-		// letting that selection through tinted an entire chunk with whichever
-		// biome the user last edited a tree in - a taiga going cherry-pink
-		// because of an unrelated tab. Neutral default until the backend can
-		// report biome per column, which is the only way to get this right.
+		// world preview shows real terrain that may span several biomes, so it
+		// takes the per-column grid the backend reports instead and ignores the
+		// dropdown entirely - which is also why the dropdown is hidden there.
 		const tint = activeWorld ? DEFAULT_BIOME : biome
+		const grid = activeWorld && activeKey ? (biomeCache.get(activeKey) ?? null) : null
 
 		if (!preview) {
-			preview = await TreePreview.create(canvasEl, blocks, assetsBaseURL, { showGrid: showGridOn, biome: tint })
+			preview = await TreePreview.create(canvasEl, blocks, assetsBaseURL, { showGrid: showGridOn, biome: tint, biomes: grid })
 			preview.setAutoRotate(autoRotateOn)
 
 			// Watch the canvas itself, not the window. The canvas changes size
@@ -494,7 +507,7 @@
 			// Meshing a dense chunk takes seconds even spread across frames,
 			// so report it - progress that is visibly moving reads very
 			// differently from a window that has simply stopped.
-			await preview.setBlocks(blocks, assetsBaseURL, tint, (done, total) => {
+			await preview.setBlocks(blocks, assetsBaseURL, tint, grid, (done, total) => {
 				if (total > 4) meshProgress = Math.round((done / total) * 100)
 			})
 		}
@@ -606,6 +619,7 @@
 			const target = docs.find((d) => d.key === docKey)
 			if (!target) return
 			blockCache.set(docKey, blocks)
+			biomeCache.set(docKey, result.biomes ?? null)
 			target.blockCount = blocks.length
 			target.genMs = Math.round(performance.now() - started)
 			const chunkLabel = `${result.chunkCount} chunk${result.chunkCount === 1 ? '' : 's'}`
@@ -638,7 +652,13 @@
 				? `${server} · build ${render.buildMs}ms · assets ${render.assetsMs}ms · mesh ${render.meshMs}ms`
 				: server
 			const scope = decoratedOnly ? 'decoration only · ' : ''
-			worldInfo = `y ${result.minY}..${result.maxY} · ${scope}${source} · ${phases}`
+			// The biome under the centre of the view. A preview this size often
+			// spans several, so this names where you are rather than claiming
+			// the whole area is one biome.
+			const here = result.biomes?.center
+				? `${prettyBiome(result.biomes.center)} · `
+				: ''
+			worldInfo = `${here}y ${result.minY}..${result.maxY} · ${scope}${source} · ${phases}`
 		} catch (e) {
 			if (seq !== genSeq) return
 			const err = e as BackendError

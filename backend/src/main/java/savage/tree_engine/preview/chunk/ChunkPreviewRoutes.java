@@ -21,12 +21,15 @@ public final class ChunkPreviewRoutes {
 	private final SessionCache sessions;
 	private final ChunkPreviewer previewer;
 	private final Gson gson;
+	private final String colormapsDir;
 
-	public ChunkPreviewRoutes(MinecraftServer server, SessionCache sessions, Gson gson) {
+	public ChunkPreviewRoutes(
+		MinecraftServer server, SessionCache sessions, Gson gson, String colormapsDir) {
 		this.server = server;
 		this.sessions = sessions;
 		this.previewer = new ChunkPreviewer(server);
 		this.gson = gson;
+		this.colormapsDir = colormapsDir;
 	}
 
 	public void register(ApiServer api) {
@@ -41,6 +44,11 @@ public final class ChunkPreviewRoutes {
 			throw ApiException.badRequest("Request body must be a JSON object");
 		}
 		JsonObject request = body.getAsJsonObject();
+
+		// Biome colours are looked up in client-side colormap textures that a
+		// server never loads on its own. Done here, on the first preview, so
+		// the launcher has certainly finished extracting them by now.
+		Colormaps.ensureLoaded(colormapsDir);
 
 		// Unlike single-tree previews a session is the whole point here:
 		// without a datapack this would just render vanilla.
@@ -70,6 +78,10 @@ public final class ChunkPreviewRoutes {
 		// Where the server's time actually went, so a slow preview can be
 		// attributed rather than guessed at.
 		response.add("timings", gson.toJsonTree(result.timings()));
+		// Per-column biomes and the colours they tint with, so the world
+		// preview can colour itself the way the game would instead of being
+		// told a single biome to pretend everything is in.
+		response.add("biomes", gson.toJsonTree(result.biomes()));
 		// The vertical window actually used, so a client can frame the camera
 		// without guessing where the ground is.
 		response.addProperty("minY", result.minY());

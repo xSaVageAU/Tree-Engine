@@ -304,7 +304,7 @@ func (a *App) StartServer() {
 		a.emitStatus(PhaseError, fmt.Sprintf("Failed to update mod jar: %v", err))
 		return
 	}
-	if err := instance.WriteModConfig(a.layout, state.Port, state.AuthToken); err != nil {
+	if err := instance.WriteModConfig(a.layout, state.Port, state.AuthToken, state.GameVersion); err != nil {
 		a.emitStatus(PhaseError, fmt.Sprintf("Failed to write mod config: %v", err))
 		return
 	}

@@ -16,7 +16,8 @@ import java.nio.file.Path;
  * comments, which meant every added field touched a serializer. This is a
  * plain record through Gson instead.
  */
-public record BackendConfig(int port, String token, int workerThreads, int sessionLimit) {
+public record BackendConfig(
+	int port, String token, int workerThreads, int sessionLimit, String colormapsDir) {
 	public static final Path CONFIG_FILE =
 		Path.of("config", "tree-engine-backend.json");
 
@@ -32,7 +33,8 @@ public record BackendConfig(int port, String token, int workerThreads, int sessi
 	 */
 	public static BackendConfig load(Gson gson) throws IOException {
 		if (!Files.exists(CONFIG_FILE)) {
-			return new BackendConfig(DEFAULT_PORT, "", DEFAULT_WORKERS, DEFAULT_SESSION_LIMIT);
+			return new BackendConfig(
+				DEFAULT_PORT, "", DEFAULT_WORKERS, DEFAULT_SESSION_LIMIT, "");
 		}
 		try {
 			BackendConfig parsed =
@@ -51,7 +53,8 @@ public record BackendConfig(int port, String token, int workerThreads, int sessi
 			port > 0 ? port : DEFAULT_PORT,
 			token == null ? "" : token,
 			workerThreads > 0 ? Math.min(workerThreads, 16) : DEFAULT_WORKERS,
-			sessionLimit > 0 ? sessionLimit : DEFAULT_SESSION_LIMIT);
+			sessionLimit > 0 ? sessionLimit : DEFAULT_SESSION_LIMIT,
+			colormapsDir == null ? "" : colormapsDir);
 	}
 
 	public boolean hasToken() {

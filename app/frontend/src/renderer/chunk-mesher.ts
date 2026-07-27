@@ -24,6 +24,7 @@
 //      intermediate Mesh, no concat, no flatMap.
 
 import { Mesh, SpecialRenderers, type BlockDefinition, type BlockState } from 'deepslate'
+import { bakeWithTintMask, tintKindOf, type BiomeTintMap, type TintKind } from './biome-tint'
 import { lookupBlockFlags } from './block-flags'
 import type { AssetResources } from './resources'
 import type { BuiltStructure } from './structure'
@@ -73,11 +74,15 @@ interface PaletteInfo {
 	selfCulling: boolean
 	semiTransparent: boolean
 	waterlogged: boolean
+	// Which biome colour this block takes, or null if it is not biome-tinted.
+	// Only consulted when the mesher was given a tint map.
+	tintKind: TintKind | null
 }
 
 // One block's geometry at the origin, ready to be copied out with an offset.
 // Position is the only attribute that depends on where the block sits, so
-// everything else is a straight memcpy.
+// colour is a straight memcpy too - unless biome tinting is on, in which case
+// it is a multiply (see buildMeshes).
 interface Template {
 	quads: number
 	pos: Float32Array // 12 per quad (4 vertices x xyz)
@@ -223,12 +228,16 @@ export class ChunkMesher {
 	private readonly transparentEntries: Int32Array
 	private opaqueLength = 0
 	private transparentLength = 0
+	// Reused per block, so tinting a slice allocates nothing.
+	private readonly tintScratch = new Float32Array(3)
 
 	constructor(
 		private readonly gl: WebGLRenderingContext,
 		private readonly built: BuiltStructure,
 		private readonly resources: AssetResources,
 		private readonly sliceSize: number,
+		// Null for the single-tree preview, which tints flatly from one biome.
+		private readonly tints: BiomeTintMap | null = null,
 	) {
 		const nameIds = new Map<string, number>()
 		this.paletteInfo = built.palette.map((state) => {
@@ -248,6 +257,7 @@ export class ChunkMesher {
 				selfCulling: flags?.self_culling ?? false,
 				semiTransparent: flags?.semi_transparent ?? false,
 				waterlogged: state.isWaterlogged(),
+				tintKind: tintKindOf(nameKey),
 			}
 		})
 
@@ -400,6 +410,15 @@ export class ChunkMesher {
 	}
 
 	private bake(info: PaletteInfo, mask: number): Template | null {
+		// With a tint map the template is baked as a mask rather than with a
+		// colour in it, and the colour is applied per block when it is stamped.
+		if (this.tints) {
+			return bakeWithTintMask(() => this.bakeMesh(info, mask))
+		}
+		return this.bakeMesh(info, mask)
+	}
+
+	private bakeMesh(info: PaletteInfo, mask: number): Template | null {
 		const cull = cullFromMask(mask)
 		const mesh = new Mesh()
 		try {
@@ -459,7 +478,26 @@ export class ChunkMesher {
 					pos[p++] = tp[i + 1] + y
 					pos[p++] = tp[i + 2] + z
 				}
-				color.set(template.color, c); c += template.color.length
+				// Biome tinting turns this copy into a blend. The baked colour is
+				// a mask - 0 where the model declared a tintindex, 1 where it did
+				// not - so `tint + (1 - tint) * mask` yields the biome colour on
+				// tinted faces and leaves everything else at 1.
+				const info = this.tints
+					? this.paletteInfo[Math.floor(entries[o] / CULL_MASK_COUNT)]
+					: null
+				if (info?.tintKind) {
+					const tint = this.tintScratch
+					const [ox, , oz] = this.built.origin
+					this.tints!.sample(info.tintKind, x + ox, z + oz, tint)
+					const tc = template.color
+					for (let i = 0; i < tc.length; i += 3) {
+						color[c++] = tint[0] + (1 - tint[0]) * tc[i]
+						color[c++] = tint[1] + (1 - tint[1]) * tc[i + 1]
+						color[c++] = tint[2] + (1 - tint[2]) * tc[i + 2]
+					}
+				} else {
+					color.set(template.color, c); c += template.color.length
+				}
 				texture.set(template.texture, t); t += template.texture.length
 				textureLimit.set(template.textureLimit, l); l += template.textureLimit.length
 				normal.set(template.normal, n); n += template.normal.length

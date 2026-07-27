@@ -64,14 +64,14 @@ public class TreeEngineBackend implements ModInitializer {
 		try {
 			api = ApiServer.start(config);
 			sessions = new SessionCache(config.sessionLimit());
-			registerRoutes(api, server);
+			registerRoutes(api, server, config);
 			api.listen();
 		} catch (IOException e) {
 			ApiServer.LOGGER.error("Failed to bind port {}", config.port(), e);
 		}
 	}
 
-	private void registerRoutes(ApiServer api, MinecraftServer server) {
+	private void registerRoutes(ApiServer api, MinecraftServer server, BackendConfig config) {
 		api.route("/v1/health", exchange -> {
 			Http.require(exchange, "GET");
 			JsonObject body = new JsonObject();
@@ -84,7 +84,7 @@ public class TreeEngineBackend implements ModInitializer {
 
 		new SessionRoutes(server, sessions, GSON).register(api);
 		new TreePreviewRoutes(server, sessions, GSON).register(api);
-		new ChunkPreviewRoutes(server, sessions, GSON).register(api);
+		new ChunkPreviewRoutes(server, sessions, GSON, config.colormapsDir()).register(api);
 		new RegistryRoutes(server, sessions, GSON).register(api);
 		new BenchmarkRoutes(server, sessions, GSON).register(api);
 	}

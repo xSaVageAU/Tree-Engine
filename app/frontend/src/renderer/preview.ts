@@ -13,6 +13,8 @@
 import { Mesh, Structure, StructureRenderer } from 'deepslate'
 import { mat4, vec3 } from 'gl-matrix'
 import { applyBiomeTint, DEFAULT_BIOME } from './biome-colors'
+import { BiomeTintMap } from './biome-tint'
+import type { ApiBiomeGrid } from './mod-client'
 import { ChunkMesher, type SliceGroup } from './chunk-mesher'
 import { AssetResources } from './resources'
 import { buildStructure, type ApiBlock, type BuiltStructure } from './structure'
@@ -20,6 +22,9 @@ import { buildStructure, type ApiBlock, type BuiltStructure } from './structure'
 export interface PreviewOptions {
 	showGrid?: boolean
 	biome?: string
+	// Real per-column biomes, for world previews. When present the flat `biome`
+	// tint is not used at all - each column takes its own colour instead.
+	biomes?: ApiBiomeGrid | null
 }
 
 // Timing of the last setBlocks call, for the status readout. Kept module-level
@@ -112,6 +117,7 @@ export class TreePreview {
 	private autoRotating = false
 	private autoRotateHandle: number | null = null
 	private meshGeneration = 0
+	private tints: BiomeTintMap | null = null
 
 	private constructor(
 		canvas: HTMLCanvasElement,
@@ -127,7 +133,10 @@ export class TreePreview {
 		this.currentBiome = options.biome ?? DEFAULT_BIOME
 		this.showGrid = options.showGrid ?? true
 		this.viewDist = Math.max(8, Math.max(...built.size) * 1.4)
-		applyBiomeTint(this.currentBiome)
+		this.tints = options.biomes ? BiomeTintMap.from(options.biomes) : null
+		// Only meaningful without a tint map: with one, every tinted face gets
+		// its column's own colour and this global table is bypassed entirely.
+		if (!this.tints) applyBiomeTint(this.currentBiome)
 
 		// An *empty* structure of the right size: the renderer needs the size for
 		// its grid mesh, and nothing else. Handing it real blocks would make its
@@ -143,7 +152,7 @@ export class TreePreview {
 			useInvisibleBlockBuffer: false,
 		})
 		this.fixAtlasFiltering()
-		this.mesher = new ChunkMesher(gl, built, resources, SLICE_SIZE)
+		this.mesher = new ChunkMesher(gl, built, resources, SLICE_SIZE, this.tints)
 		this.attachControls(canvas)
 		this.resize(canvas)
 	}
@@ -172,6 +181,7 @@ export class TreePreview {
 		blocks: ApiBlock[],
 		baseURL: string,
 		biome = DEFAULT_BIOME,
+		biomes: ApiBiomeGrid | null = null,
 		onProgress?: (done: number, total: number) => void,
 	): Promise<void> {
 		const t0 = performance.now()
@@ -183,14 +193,15 @@ export class TreePreview {
 		this.center = built.center
 		this.currentBiome = biome
 		this.viewDist = Math.max(8, Math.max(...built.size) * 1.4)
-		applyBiomeTint(biome)
+		this.tints = biomes ? BiomeTintMap.from(biomes) : null
+		if (!this.tints) applyBiomeTint(biome)
 
 		// Anything already meshing belongs to a superseded structure.
 		const generation = ++this.meshGeneration
 
 		this.refreshRenderer(built, this.resources)
 		this.mesher.dispose()
-		this.mesher = new ChunkMesher(this.gl, built, this.resources, SLICE_SIZE)
+		this.mesher = new ChunkMesher(this.gl, built, this.resources, SLICE_SIZE, this.tints)
 		await this.meshInSlices(this.mesher, generation, onProgress)
 
 		lastRenderTimings = {
@@ -205,6 +216,11 @@ export class TreePreview {
 	// The tint is baked into the mesher's geometry templates, so it needs a fresh
 	// mesher; the atlas and grid are unchanged.
 	setBiome(biome: string): void {
+		// A world preview colours itself from its own biome grid, so there is
+		// nothing for the picker to change - and the picker is hidden in that
+		// mode anyway. Guarded rather than assumed, since remeshing here would
+		// silently throw the real tints away.
+		if (this.tints) return
 		this.currentBiome = biome
 		applyBiomeTint(biome)
 		const generation = ++this.meshGeneration

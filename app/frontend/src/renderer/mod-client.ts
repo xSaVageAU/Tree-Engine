@@ -183,6 +183,30 @@ export interface ChunkPreviewRequest {
 	maxY?: number
 }
 
+// One distinct biome in a preview, with the colours the game would tint with.
+// These come from the server's own Biome, so datapack biomes are covered and
+// the renderer never has to know what a swamp looks like.
+export interface ApiBiomeEntry {
+	name: string
+	// 0xRRGGBB.
+	grass: number
+	foliage: number
+	dryFoliage: number
+	water: number
+}
+
+export interface ApiBiomeGrid {
+	originX: number
+	originZ: number
+	width: number
+	depth: number
+	palette: ApiBiomeEntry[]
+	// One palette index per block column, at (z - originZ) * width + (x - originX).
+	columns: number[]
+	// The biome at the centre of the requested area, for display.
+	center: string
+}
+
 export interface ChunkPreviewResult {
 	blocks: ApiBlock[]
 	blockFlags?: Record<string, ApiBlockFlags>
@@ -194,6 +218,9 @@ export interface ChunkPreviewResult {
 	// The vertical window actually used.
 	minY: number
 	maxY: number
+	// Per-column biomes and the colours the game tints them with. Absent from
+	// older backends, in which case the preview falls back to a flat tint.
+	biomes?: ApiBiomeGrid
 	// Where the server's own time went. The remainder of the round trip is
 	// JSON serialisation and transfer.
 	timings?: {

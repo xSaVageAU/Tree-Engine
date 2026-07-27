@@ -80,7 +80,7 @@ func Run(ctx context.Context, l Layout, eulaAccepted bool, progress ProgressFunc
 	}
 	// The backend is stateless, so its config carries no project path - it
 	// only ever needs a port and a token.
-	if err := WriteModConfig(l, port, authToken); err != nil {
+	if err := WriteModConfig(l, port, authToken, manifest.MinecraftVersion); err != nil {
 		return nil, fmt.Errorf("failed to write mod config: %w", err)
 	}
 

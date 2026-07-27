@@ -21,6 +21,12 @@ type backendConfig struct {
 	Token         string `json:"token"`
 	WorkerThreads int    `json:"workerThreads"`
 	SessionLimit  int    `json:"sessionLimit"`
+	// Where the extracted vanilla colormaps live. Biome grass and foliage
+	// colours are sampled from these textures, and a Minecraft server never
+	// loads them on its own - they are client assets - so the backend is told
+	// where the launcher put them. May not exist yet when this is written;
+	// the backend loads them lazily.
+	ColormapsDir string `json:"colormapsDir"`
 }
 
 // BackendConfigPath is where BackendConfig.CONFIG_FILE looks, relative to the
@@ -34,7 +40,7 @@ func BackendConfigPath(l Layout) string {
 //
 // An empty token makes the backend refuse to serve rather than expose an
 // unauthenticated API, so this treats a missing token as a programming error.
-func WriteModConfig(l Layout, port int, authToken string) error {
+func WriteModConfig(l Layout, port int, authToken, mcVersion string) error {
 	if authToken == "" {
 		return fmt.Errorf("refusing to write backend config without an auth token")
 	}
@@ -49,6 +55,7 @@ func WriteModConfig(l Layout, port int, authToken string) error {
 		Token:         authToken,
 		WorkerThreads: 4,
 		SessionLimit:  8,
+		ColormapsDir:  filepath.Join(l.McAssetsDir(), mcVersion, "textures", "colormap"),
 	}, "", "  ")
 	if err != nil {
 		return err

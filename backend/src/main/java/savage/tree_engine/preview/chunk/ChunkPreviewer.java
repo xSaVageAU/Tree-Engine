@@ -252,6 +252,20 @@ public final class ChunkPreviewer {
 			maxY = floorY;
 		}
 
+		// Biomes for the requested area only. The margin is not included: it is
+		// scaffolding for neighbour lookups and nothing in it is ever drawn.
+		int originX = minChunkX * 16;
+		int originZ = minChunkZ * 16;
+		int width = (maxChunkX - minChunkX + 1) * 16;
+		int depth = (maxChunkZ - minChunkZ + 1) * 16;
+		BiomeGridDto.Builder biomes = new BiomeGridDto.Builder(originX, originZ, width, depth);
+		for (int z = originZ; z < originZ + depth; z++) {
+			for (int x = originX; x < originX + width; x++) {
+				biomes.set(x, z, level.surfaceBiome(x, z), x, z);
+			}
+		}
+		biomes.setCenter(level.surfaceBiome(centerX * 16 + 8, centerZ * 16 + 8));
+
 		Timings timings = new Timings(
 			generateMs, copyMs, decorateMs, millisSince(tEmit), generated.size());
 		ApiServer.LOGGER.info(
@@ -259,7 +273,8 @@ public final class ChunkPreviewer {
 			blocks.size(), timings);
 
 		return new Result(
-			blocks, requested.size(), level.decorated().size(), minY, maxY, timings);
+			blocks, requested.size(), level.decorated().size(), minY, maxY,
+			biomes.build(), timings);
 	}
 
 	private static long millisSince(long startNanos) {
@@ -324,6 +339,6 @@ public final class ChunkPreviewer {
 	 */
 	public record Result(
 		List<BlockDto> blocks, int chunkCount, int decoratedCount, int minY, int maxY,
-		Timings timings) {
+		BiomeGridDto biomes, Timings timings) {
 	}
 }

@@ -371,9 +371,32 @@ public final class ChunkPreviewLevel implements WorldGenLevel {
 		return getNoiseBiome(x, y, z);
 	}
 
+	/**
+	 * Cached because this used to allocate a fresh manager on every call, and
+	 * the biome grid asks per column.
+	 */
+	private BiomeManager biomeManager;
+
 	@Override
 	public BiomeManager getBiomeManager() {
-		return new BiomeManager(this, seed);
+		if (biomeManager == null) {
+			biomeManager = new BiomeManager(this, seed);
+		}
+		return biomeManager;
+	}
+
+	/**
+	 * The biome a column should be coloured by: the one at its surface.
+	 *
+	 * <p>Goes through {@link BiomeManager} rather than reading the noise biome
+	 * directly, because that is what the game does when it colours a block -
+	 * the manager applies a fuzzy offset that softens the 4x4 cell edges, and
+	 * skipping it would give the preview visibly blockier biome borders than
+	 * the real world has.
+	 */
+	public Holder<Biome> surfaceBiome(int x, int z) {
+		int surface = getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+		return getBiomeManager().getBiome(new BlockPos(x, surface, z));
 	}
 
 	// --- world shape ---------------------------------------------------
