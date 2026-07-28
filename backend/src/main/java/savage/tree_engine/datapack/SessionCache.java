@@ -4,19 +4,23 @@ import savage.tree_engine.api.ApiException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Holds compiled datapacks in memory, bounded by both count and age.
+ * Holds compiled datapacks in memory, bounded by count.
  *
  * A compiled registry set is large, so this deliberately keeps very few.
  * Eviction is not a correctness concern: a client whose session has been
  * evicted simply re-uploads the datapack and gets an identical id back,
  * because ids are content fingerprints.
+ *
+ * There is deliberately no time-to-live. This backend is a child process of
+ * the editor and dies with it, so a session only ever has one user, and that
+ * user expects the app to still work after they come back from lunch. A clock
+ * bound could only ever evict a session someone was still using; the count
+ * bound is what actually protects memory, and it evicts the least recently
+ * used session rather than whichever one happens to be oldest.
  */
 public final class SessionCache {
-	private static final long TTL_MILLIS = TimeUnit.MINUTES.toMillis(30);
-
 	private final int maxSessions;
 	private final LinkedHashMap<String, Session> sessions;
 
@@ -40,17 +44,9 @@ public final class SessionCache {
 		return get(id) != null;
 	}
 
-	/** Returns the session, or null if it is absent or expired. */
+	/** Returns the session, or null if it is absent. */
 	public synchronized Session get(String id) {
-		Session session = sessions.get(id);
-		if (session == null) {
-			return null;
-		}
-		if (isExpired(session)) {
-			sessions.remove(id);
-			return null;
-		}
-		return session;
+		return sessions.get(id);
 	}
 
 	/** Like {@link #get} but reports the failure the client should see. */
@@ -61,7 +57,7 @@ public final class SessionCache {
 		Session session = get(id);
 		if (session == null) {
 			throw ApiException.notFound(
-				"Unknown or expired session: " + id + " - re-send the datapack");
+				"Unknown session: " + id + " - re-send the datapack");
 		}
 		return session;
 	}
@@ -76,9 +72,5 @@ public final class SessionCache {
 
 	public synchronized void clear() {
 		sessions.clear();
-	}
-
-	private static boolean isExpired(Session session) {
-		return System.currentTimeMillis() - session.createdAtMillis() > TTL_MILLIS;
 	}
 }

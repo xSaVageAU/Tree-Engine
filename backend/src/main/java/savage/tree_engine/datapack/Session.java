@@ -12,10 +12,5 @@ import net.minecraft.core.RegistryAccess;
 public record Session(
 	String id,
 	RegistryAccess.Frozen registries,
-	int fileCount,
-	long createdAtMillis) {
-
-	public Session(String id, RegistryAccess.Frozen registries, int fileCount) {
-		this(id, registries, fileCount, System.currentTimeMillis());
-	}
+	int fileCount) {
 }

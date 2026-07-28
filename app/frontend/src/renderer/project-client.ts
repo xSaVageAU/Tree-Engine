@@ -21,7 +21,7 @@ import {
 	SaveTree,
 } from '../../wailsjs/go/main/App'
 import type { main } from '../../wailsjs/go/models'
-import { createSession, type ModConnection } from './mod-client'
+import { BackendError, createSession, type ModConnection } from './mod-client'
 
 // --- trees ----------------------------------------------------------------
 
@@ -170,4 +170,47 @@ export async function ensureSession(conn: ModConnection): Promise<string | null>
 	} finally {
 		inFlight = null
 	}
+}
+
+// Runs a preview against the current session, re-uploading and retrying once if
+// the backend turns out not to have it.
+//
+// The backend keeps sessions for as long as it lives, so this is a backstop
+// rather than a routine path: it fires when the LRU cache has evicted us after
+// several other projects, or when the backend process was restarted underneath
+// a running app. Both are recoverable without telling the user anything - the
+// datapack is still on disk, and re-sending it produces the same session id.
+export async function withSession<T>(
+	conn: ModConnection,
+	run: (sessionId: string | null) => Promise<T>,
+): Promise<T> {
+	return retrySession(conn, await ensureSession(conn), run)
+}
+
+// As above, for callers that already hold a session id - the single-tree
+// preview builds one separately because it tolerates failing to get one.
+export async function retrySession<T>(
+	conn: ModConnection,
+	sessionId: string | null,
+	run: (sessionId: string | null) => Promise<T>,
+): Promise<T> {
+	try {
+		return await run(sessionId)
+	} catch (e) {
+		if (!isMissingSession(e, sessionId)) throw e
+		invalidateSession()
+		return run(await ensureSession(conn))
+	}
+}
+
+// A 404 naming the id we just sent is the backend saying it no longer holds
+// that session. Matching on the id keeps this from swallowing the other 404 the
+// preview routes can return - an unknown feature id.
+function isMissingSession(e: unknown, sessionId: string | null): boolean {
+	return (
+		sessionId !== null &&
+		e instanceof BackendError &&
+		e.status === 404 &&
+		e.message.includes(sessionId)
+	)
 }

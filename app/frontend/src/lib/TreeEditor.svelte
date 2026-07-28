@@ -29,8 +29,10 @@
 		getTree,
 		listReplacers,
 		listTrees,
+		retrySession,
 		savePlacement,
 		saveTree,
+		withSession,
 		type Replacer,
 	} from '../renderer/project-client'
 	import { previewChunk, type ApiBiomeGrid } from '../renderer/mod-client'
@@ -552,12 +554,14 @@
 				console.error('Failed to build preview session', e)
 			}
 
-			const result = await previewTree(conn, {
-				sessionId: sessionId ?? undefined,
-				feature,
-				biome,
-				seed: previewSeed,
-			})
+			const result = await retrySession(conn, sessionId, (id) =>
+				previewTree(conn, {
+					sessionId: id ?? undefined,
+					feature,
+					biome,
+					seed: previewSeed,
+				}),
+			)
 			if (seq !== genSeq) return
 			registerBlockFlags(result.blockFlags)
 			const blocks = result.blocks.filter((b) => b.name !== 'minecraft:air')
@@ -601,16 +605,17 @@
 		const started = performance.now()
 
 		try {
-			const sessionId = await ensureSession(conn)
 			const tRequest = performance.now()
-			const result = await previewChunk(conn, {
-				sessionId: sessionId ?? undefined,
-				chunkX: worldChunkX,
-				chunkZ: worldChunkZ,
-				size: worldSize,
-				seed: previewSeed,
-				decoratedOnly,
-			})
+			const result = await withSession(conn, (sessionId) =>
+				previewChunk(conn, {
+					sessionId: sessionId ?? undefined,
+					chunkX: worldChunkX,
+					chunkZ: worldChunkZ,
+					size: worldSize,
+					seed: previewSeed,
+					decoratedOnly,
+				}),
+			)
 			const serverMs = Math.round(performance.now() - tRequest)
 			if (seq !== genSeq) return
 
